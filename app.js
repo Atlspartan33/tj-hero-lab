@@ -374,7 +374,7 @@ function renderPreview(cv, item) {
   if (item.id === 'badge') drawBadge(x, f, 1, t);
   if (MASKS.includes(item)) drawMask(x, f, item.id, 1, t);
   if (item.trigger === 'mouth') { for (let i = 0; i < 26; i++) updateBreath(f, item.id, 1, 1 / 30); drawBreath(x, f); }
-  if (item.id === 'laser') drawLasers(x, f, 0.7, t);
+  if (item.id === 'laser') drawLasers(x, f, 1.5, t);
 }
 const EMOJI = { eye: '🦸🏿‍♂️', robot: '🤖', thunder: '⚡', dino: '🦖', fire: '🔥', ice: '❄️', laser: '👀', aura: '✨', cape: '🧣', badge: '🛡️', city: '🌃', space: '🪐' };
 const previews = new Map();                         // rendered once, re-used on every tray render
@@ -445,7 +445,13 @@ function clearAll() {
 // Tap anywhere on the camera picture to fire every power that's on.
 $('stage').addEventListener('pointerdown', (e) => {
   if (e.target.closest('button') || document.body.dataset.screen !== 'studio' || !$('loading').hidden || !$('error').hidden) return;
-  if (!POWERS.some((p) => p.trigger && isOn(p.id))) return;
+  if (!POWERS.some((p) => p.trigger && isOn(p.id))) {
+    // no power to fire yet: answer the tap anyway and point at the Powers drawer
+    sfx.sparkle(); voice.say('pick_power');
+    const tab = document.querySelector('[data-tab=powers]');
+    tab.classList.remove('pop'); void tab.offsetWidth; tab.classList.add('pop');
+    return;
+  }
   S.boostUntil = performance.now() + 1600;
   sfx.zap();
 });
@@ -481,6 +487,7 @@ async function shoot() {
     setTimeout(() => { sfx.tada(); voice.say('saved'); toast('Saved! ⭐'); }, 450);
   } catch (e) {
     console.error(e);
+    sfx.off(); voice.say('oops');
     toast("Oops — that picture didn't save. Try again!");
   } finally {
     $('count').hidden = true;
@@ -620,9 +627,14 @@ $('galleryBtn').onclick = openGallery;
 $('galleryClose').onclick = closeTop;
 $('viewerBack').onclick = closeTop;
 $('shareBtn').onclick = share;
-$('trashBtn').onclick = () => { $('confirm').hidden = false; sfx.pop(); openLayer('confirm'); };
+$('trashBtn').onclick = () => { $('confirm').hidden = false; sfx.pop(); voice.say('toss'); openLayer('confirm'); };
 $('keepBtn').onclick = closeTop;
 $('tossBtn').onclick = trash;
+// While loading, the drawer is dimmed — still answer taps so he knows to wait.
+document.querySelector('.dock').addEventListener('pointerdown', (e) => {
+  if ($('loading').hidden || e.target.closest('#shutter')) return;
+  sfx.off(); voice.say('wait'); toast('Wait for the camera! ⏳');
+});
 $('tray').onclick = (e) => { const b = e.target.closest('.tile'); if (b) toggle(b.dataset.id); };
 document.querySelectorAll('.tab').forEach((b) => {
   b.onclick = () => { S.tab = b.dataset.tab; sfx.pop(); voice.say(`t_${S.tab}`); renderTabs(); renderTray(); };

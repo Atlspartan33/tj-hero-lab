@@ -29,4 +29,6 @@ export const LINES = {
   gallery: 'Your hero pictures!',
   oops: 'Uh oh! Ask a grown-up for help.',
   wait: 'Wait for the camera!',
+  toss: 'Throw it away?',
+  pick_power: 'Pick a power first!',
 };

@@ -11,7 +11,7 @@ export const MASKS = [
 export const POWERS = [
   { id: 'fire', name: 'Fire Breath', trigger: 'mouth', hint: '😮 → 🔥', line: 'p_fire', group: 'breath' },
   { id: 'ice', name: 'Ice Breath', trigger: 'mouth', hint: '😮 → ❄️', line: 'p_ice', group: 'breath' },
-  { id: 'laser', name: 'Laser Eyes', trigger: 'surprise', hint: '😲 → ⚡', line: 'p_laser' },
+  { id: 'laser', name: 'Laser Eyes', trigger: 'surprise', hint: '😲 → 🔴', line: 'p_laser' },
   { id: 'aura', name: 'Power Glow', trigger: null, line: 'p_aura' },
 ];
 export const GEAR = [

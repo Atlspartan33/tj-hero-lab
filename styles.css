@@ -146,9 +146,10 @@ body.overlay-up .dock { opacity: .4; }
 body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none; }
 .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .tab-ico { font-size: 1.3em; }
+.tab.pop { animation: tilePop .5s ease-out 2; box-shadow: inset 0 0 0 4px var(--gold); }
 .tab {
   display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; padding: 0 6px;
-  min-height: 56px; border-radius: 999px; font-size: 22px; font-weight: 700;
+  min-height: 64px; border-radius: 999px; font-size: 22px; font-weight: 700;
   background: var(--panel-2); color: var(--ink);
 }
 .tab[aria-selected="true"] { background: #3A2447; color: var(--ink); box-shadow: inset 0 0 0 4px var(--pink); }
@@ -236,7 +237,8 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 /* short landscape (8" tablets sideways, phones sideways): compact side panel */
 @media (orientation: landscape) and (min-width: 600px) and (max-height: 640px) {
   .dock { width: 340px; gap: 8px; padding: 10px 12px; }
-  .tab { min-height: 48px; font-size: 17px; }
+  .tab { min-height: 56px; font-size: 17px; }
+  .go { font-size: 40px; min-height: 76px; }
   .tray { gap: 8px; }
   .tile { min-height: 96px; padding: 6px; }
   .tile canvas { width: 62px; height: 62px; }
@@ -249,7 +251,7 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
   .shutter-core { width: 62px; height: 62px; font-size: 28px; }
   .chip { min-height: 48px; font-size: 17px; padding: 0 14px; }
   .ask { margin: 8px 0 12px; }
-  .big { min-height: 60px; font-size: 21px; }
+  .big:not(.go) { min-height: 60px; font-size: 21px; }
   .text-btn { margin-top: 10px; }
 }
 
@@ -257,7 +259,7 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 @media (max-width: 540px) {
   .dock { gap: 10px; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
   .brand { display: none; }
-  .tab { font-size: 16px; min-height: 52px; gap: 3px; }
+  .tab { font-size: 16px; min-height: 60px; gap: 3px; }
   .tray { grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .tile { min-height: 100px; }
   .tile canvas { width: 64px; height: 64px; }
@@ -267,7 +269,7 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
   .tile-name { font-size: 15px; }
   .shutter { width: 88px; height: 88px; }
   .shutter-core { width: 68px; height: 68px; font-size: 32px; }
-  .big { font-size: 22px; min-height: 64px; }
+  .big:not(.go) { font-size: 22px; min-height: 64px; }
   .grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 380px) {
