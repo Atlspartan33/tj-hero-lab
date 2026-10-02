@@ -71,6 +71,14 @@ function makeLoop(kind) {
     o.start(); o2.start(); lfo.start();
     return { g, max: 0.05 };
   }
+  if (kind === 'crackle') {
+    // electric crackle: bright noise chopped by a fast random-ish tremolo
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), trem = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+    src.buffer = noiseBuf; src.loop = true; f.type = 'bandpass'; f.frequency.value = 2600; f.Q.value = 0.9;
+    lfo.type = 'square'; lfo.frequency.value = 17; lg.gain.value = 0.5; trem.gain.value = 0.5;
+    lfo.connect(lg); lg.connect(trem.gain); src.connect(f).connect(trem).connect(g); src.start(); lfo.start();
+    return { g, max: 0.12 };
+  }
   if (kind === 'bubble') {
     // soft burbling: a sine whose pitch wobbles
     const o = ac.createOscillator(), lfo = ac.createOscillator(), lg = ac.createGain();

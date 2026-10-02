@@ -43,7 +43,7 @@ export class Tracker {
     const next = [], used = new Set();
 
     lms.forEach((raw, i) => {
-      const pts = raw.map((p) => ({ x: p.x * W, y: p.y * H }));
+      const pts = raw.map((p) => ({ x: p.x * W, y: p.y * H, z: p.z * W }));   // z: depth, same scale as x (toward camera = negative)
       const fw = dist(pts[234], pts[454]);
       const bs = blendshapes(bss[i]?.categories, jawOverride);
 
@@ -63,6 +63,7 @@ export class Tracker {
           const s = best.P[k];
           s.x += (pts[k].x - s.x) * a;
           s.y += (pts[k].y - s.y) * a;
+          s.z += (pts[k].z - s.z) * a;
         }
         for (const key of BS_KEYS) {
           const cur = best.bs[key] ?? 0;

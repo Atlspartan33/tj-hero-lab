@@ -1,9 +1,12 @@
 // sw.js — cache-first so the studio opens with no Wi-Fi after the first visit.
-const CACHE = 'hero-v2';   // bump on every release so tablets pick up new files
+const CACHE = 'hero-v3';   // bump on every release so tablets pick up new files
 const SHELL = [
-  './', 'index.html', 'styles.css', 'app.js', 'face.js', 'gear.js', 'sfx.js', 'voice.js', 'lines.js', 'gallery.js', 'preview-face.json',
+  './', 'index.html', 'styles.css', 'app.js', 'face.js', 'gear.js', 'gear3.js', 'engine.js', 'helmets3d.js', 'fx3d.js', 'sfx.js', 'voice.js', 'lines.js', 'gallery.js', 'preview-face.json',
   'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
-  'vendor/vision_bundle.mjs', 'vendor/face_landmarker.task', 'vendor/selfie_segmenter.tflite',
+  'vendor/vision_bundle.mjs', 'vendor/three/three.module.js', 'vendor/three/three.core.js',
+  'vendor/three/addons/postprocessing/EffectComposer.js', 'vendor/three/addons/postprocessing/RenderPass.js', 'vendor/three/addons/postprocessing/UnrealBloomPass.js',
+  'vendor/three/addons/postprocessing/Pass.js', 'vendor/three/addons/postprocessing/MaskPass.js', 'vendor/three/addons/postprocessing/ShaderPass.js',
+  'vendor/three/addons/shaders/CopyShader.js', 'vendor/three/addons/shaders/LuminosityHighPassShader.js', 'vendor/three/addons/environments/RoomEnvironment.js', 'vendor/face_landmarker.task', 'vendor/selfie_segmenter.tflite',
   'vendor/wasm/vision_wasm_internal.js', 'vendor/wasm/vision_wasm_internal.wasm',
 ];
 self.addEventListener('install', (e) => {

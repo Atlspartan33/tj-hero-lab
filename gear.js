@@ -6,33 +6,69 @@
 
 export const MASKS = [
   { id: 'eye', name: 'Hero Mask', line: 'm_eye' },
-  { id: 'robot', name: 'Robot', line: 'm_robot' },
-  { id: 'thunder', name: 'Thunder', line: 'm_thunder' },
+  { id: 'robot', name: 'Robot', line: 'm_robot', is3d: true },
+  { id: 'thunder', name: 'Thunder', line: 'm_thunder', is3d: true },
   { id: 'dino', name: 'Dino Hood', line: 'm_dino' },
+  { id: 'race', name: 'Race Helmet', line: 'm_race', is3d: true },
+  { id: 'astro', name: 'Astronaut', line: 'm_astro', is3d: true },
+  { id: 'knight', name: 'Knight', line: 'm_knight', is3d: true },
+  { id: 'dragon', name: 'Dragon', line: 'm_dragon', is3d: true },
   { id: 'ninja', name: 'Ninja', line: 'm_ninja' },
-  { id: 'astro', name: 'Astronaut', line: 'm_astro' },
+  { id: 'viking', name: 'Viking', line: 'm_viking', is3d: true },
+  { id: 'crown', name: 'Crown', line: 'm_crown', is3d: true },
+  { id: 'mech', name: 'Mech Pilot', line: 'm_mech', is3d: true },
   { id: 'lion', name: 'Lion', line: 'm_lion' },
-  { id: 'knight', name: 'Knight', line: 'm_knight' },
+  { id: 'samurai', name: 'Samurai', line: 'm_samurai', is3d: true },
+  { id: 'diver', name: 'Deep Diver', line: 'm_diver', is3d: true },
+  { id: 'fireman', name: 'Fire Chief', line: 'm_fireman', is3d: true },
 ];
 export const POWERS = [
   { id: 'fire', name: 'Fire Breath', trigger: 'mouth', hint: '😮 → 🔥', line: 'p_fire', group: 'breath' },
   { id: 'ice', name: 'Ice Breath', trigger: 'mouth', hint: '😮 → ❄️', line: 'p_ice', group: 'breath' },
+  { id: 'rainbow', name: 'Rainbow', trigger: 'mouth', hint: '😮 → 🌈', line: 'p_rainbow', group: 'breath' },
   { id: 'bubble', name: 'Bubbles', trigger: 'mouth', hint: '😮 → 🫧', line: 'p_bubble', group: 'breath' },
   { id: 'shout', name: 'Super Shout', trigger: 'mouth', hint: '😮 → 💥', line: 'p_shout', group: 'breath' },
-  { id: 'laser', name: 'Laser Eyes', trigger: 'surprise', hint: '😲 → 🔴', line: 'p_laser' },
+  { id: 'laser', name: 'Laser Eyes', trigger: 'surprise', hint: '😲 → 🔴', line: 'p_laser', group: 'eyes' },
+  { id: 'hypno', name: 'Hypno Eyes', trigger: 'surprise', hint: '😲 → 🌀', line: 'p_hypno', group: 'eyes' },
+  { id: 'lightning', name: 'Lightning', trigger: null, line: 'p_lightning' },
   { id: 'aura', name: 'Power Glow', trigger: null, line: 'p_aura' },
+  { id: 'shield', name: 'Shield', trigger: null, line: 'p_shield' },
+  { id: 'speed', name: 'Super Speed', trigger: null, line: 'p_speed' },
+  { id: 'invisible', name: 'Invisible', trigger: null, line: 'p_invisible' },
 ];
 export const GEAR = [
   { id: 'cape', name: 'Cape', line: 'g_cape', behind: true },
   { id: 'wings', name: 'Wings', line: 'g_wings', behind: true },
+  { id: 'jetpack', name: 'Jetpack', line: 'g_jetpack', behind: true },
   { id: 'badge', name: 'Badge', line: 'g_badge' },
+  { id: 'robo', name: 'Robot Buddy', line: 'g_robo', is3d: true },
+  { id: 'dinobud', name: 'Dino Buddy', line: 'g_dinobud' },
   { id: 'city', name: 'Hero City', line: 'g_city', group: 'bg' },
   { id: 'space', name: 'Space', line: 'g_space', group: 'bg' },
   { id: 'dinoland', name: 'Dino Land', line: 'g_dino', group: 'bg' },
   { id: 'sky', name: 'Sky', line: 'g_sky', group: 'bg' },
+  { id: 'underwater', name: 'Under the Sea', line: 'g_underwater', group: 'bg' },
+  { id: 'snow', name: 'Snowy Peak', line: 'g_snow', group: 'bg' },
+  { id: 'track', name: 'Race Track', line: 'g_track', group: 'bg' },
+  { id: 'hq', name: 'Hero HQ', line: 'g_hq', group: 'bg' },
 ];
-export const DRAWERS = { masks: MASKS, powers: POWERS, gear: GEAR };
-export const ALL = [...MASKS, ...POWERS, ...GEAR];
+export const LOOKS = [
+  { id: 'comic', name: 'Comic Book', line: 'l_comic', group: 'look', look: 1 },
+  { id: 'cartoon', name: 'Cartoon', line: 'l_cartoon', group: 'look', look: 2 },
+  { id: 'pixel', name: 'Video Game', line: 'l_pixel', group: 'look', look: 3 },
+  { id: 'night', name: 'Night Vision', line: 'l_night', group: 'look', look: 4 },
+  { id: 'thermal', name: 'Heat Vision', line: 'l_thermal', group: 'look', look: 5 },
+  { id: 'holo', name: 'Hologram', line: 'l_holo', group: 'look', look: 6 },
+];
+// Rim light + skin tint each backdrop throws on the person (linear RGB), so he looks like he is really there.
+export const BG_LIGHT = {
+  city: { rim: [1.0, 0.45, 0.3], tint: [1.04, 0.95, 1.0] }, space: { rim: [0.45, 0.6, 1.4], tint: [0.92, 0.94, 1.08] },
+  dinoland: { rim: [1.2, 0.6, 0.25], tint: [1.08, 0.98, 0.9] }, sky: { rim: [0.9, 1.0, 1.2], tint: [1.0, 1.02, 1.06] },
+  underwater: { rim: [0.2, 0.9, 1.2], tint: [0.88, 1.0, 1.08] }, snow: { rim: [1.0, 1.1, 1.3], tint: [0.98, 1.0, 1.06] },
+  track: { rim: [1.2, 1.0, 0.5], tint: [1.04, 1.0, 0.94] }, hq: { rim: [0.2, 1.1, 1.3], tint: [0.94, 1.02, 1.06] },
+};
+export const DRAWERS = { masks: MASKS, powers: POWERS, gear: GEAR, looks: LOOKS };
+export const ALL = [...MASKS, ...POWERS, ...GEAR, ...LOOKS];
 
 // The front camera is drawn mirrored; text has to be un-mirrored so "TJ" and "POW!" read the right way.
 let MIRROR = false;
@@ -190,103 +226,6 @@ function heroMask(ctx, f, k) {
   });
 }
 
-function robotHelmet(ctx, f, k, t) {
-  local(ctx, f, f.eyes, () => {
-    ctx.scale(k, k);
-    const top = -f.d10 - 0.34, brow = -f.d10 * 0.72;
-    helmetShell(ctx, f, { top, low: 0.55 });
-    sticker(ctx, metal(ctx, -0.6, top, 0.6, 0.5, ['#F7FAFD', '#C9D4E0', '#E8EEF5', '#6E7D8F']), '#1E2836', 0.02, { y0: top, y1: 0.55 });
-    ctx.strokeStyle = 'rgba(30,40,54,.45)'; ctx.lineWidth = 0.01;
-    for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(s * 0.5, -f.d10 * 0.3); ctx.quadraticCurveTo(s * 0.5, top + 0.1, s * 0.14, top + 0.03); ctx.stroke(); }
-    ctx.beginPath(); ctx.roundRect(-0.075, top + 0.02, 0.15, brow - top - 0.02, 0.03);
-    ctx.fillStyle = '#2E7BFF'; ctx.fill(); ctx.strokeStyle = '#123D8A'; ctx.lineWidth = 0.012; ctx.stroke();
-    ctx.beginPath(); ctx.roundRect(-0.02, top + 0.06, 0.04, brow - top - 0.1, 0.02);
-    ctx.fillStyle = 'rgba(160,220,255,.9)'; ctx.fill();
-    for (let i = -3; i <= 3; i++) rivet(ctx, i * 0.12, brow - 0.045, 0.016);
-    // visor: tinted glass with a scanning shimmer
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(-0.56, -0.13, 1.12, 0.24, 0.1);
-    const vg = ctx.createLinearGradient(0, -0.13, 0, 0.11);
-    vg.addColorStop(0, 'rgba(120,240,255,.45)'); vg.addColorStop(1, 'rgba(20,140,220,.3)');
-    ctx.fillStyle = vg; ctx.fill();
-    ctx.clip();
-    const sx = ((t * 0.6) % 1.6) - 0.8;
-    const sg = ctx.createLinearGradient(sx - 0.15, 0, sx + 0.15, 0);
-    sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.5, 'rgba(255,255,255,.45)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = sg; ctx.fillRect(-0.6, -0.15, 1.2, 0.3);
-    ctx.restore();
-    ctx.beginPath(); ctx.roundRect(-0.56, -0.13, 1.12, 0.24, 0.1);
-    ctx.strokeStyle = '#1E2836'; ctx.lineWidth = 0.022; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-0.46, -0.08); ctx.lineTo(-0.22, -0.08);
-    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 0.018; ctx.stroke();
-    // ear pods with chasing lights
-    for (const s of [-1, 1]) {
-      ctx.beginPath(); ctx.arc(s * 0.62, 0.22, 0.095, 0, Math.PI * 2);
-      sticker(ctx, metal(ctx, s * 0.55, 0.12, s * 0.7, 0.32, ['#5AA0FF', '#2E7BFF', '#7FB8FF', '#123D8A']), '#1E2836', 0.014, { shadow: false });
-      for (let i = 0; i < 3; i++) {
-        const on = Math.floor(t * 6) % 3 === i;
-        ctx.beginPath(); ctx.arc(s * 0.62, 0.16 + i * 0.06, 0.016, 0, Math.PI * 2);
-        ctx.fillStyle = on ? '#BFFFF0' : 'rgba(191,255,240,.25)'; ctx.fill();
-      }
-    }
-    // antenna with a glowing light
-    ctx.beginPath(); ctx.moveTo(0, top + 0.02); ctx.lineTo(0, top - 0.16);
-    ctx.strokeStyle = '#1E2836'; ctx.lineWidth = 0.025; ctx.stroke();
-    const blink = Math.floor(t * 2) % 2;
-    ctx.save();
-    ctx.shadowColor = blink ? '#FF3B3B' : '#3BFF7A'; ctx.shadowBlur = pxs(ctx) * 0.06;
-    ctx.beginPath(); ctx.arc(0, top - 0.19, 0.05, 0, Math.PI * 2);
-    ctx.fillStyle = blink ? '#FF3B3B' : '#3BFF7A'; ctx.fill();
-    ctx.restore();
-    shine(ctx, -0.015, top - 0.205, 0.015, 0.01, 0.9);
-  });
-}
-
-function wing(ctx, s, flap = 0) {
-  ctx.save();
-  ctx.scale(s, 1);
-  ctx.rotate(-flap);
-  for (let i = 0; i < 4; i++) {
-    ctx.save();
-    ctx.rotate(-0.35 - i * 0.28);
-    ctx.beginPath();
-    ctx.ellipse(0.17, 0, 0.19 - i * 0.025, 0.052, 0, 0, Math.PI * 2);
-    const g = ctx.createLinearGradient(0, -0.05, 0, 0.05);
-    g.addColorStop(0, '#FFFFFF'); g.addColorStop(1, '#C9DCF2');
-    sticker(ctx, g, '#4D5D75', 0.011, { shadow: i === 0 });
-    ctx.beginPath(); ctx.moveTo(0.04, 0); ctx.lineTo(0.3 - i * 0.03, 0);
-    ctx.strokeStyle = 'rgba(77,93,117,.4)'; ctx.lineWidth = 0.008; ctx.stroke();
-    ctx.restore();
-  }
-  ctx.restore();
-}
-function thunderHelmet(ctx, f, k, t) {
-  local(ctx, f, f.eyes, () => {
-    ctx.scale(k, k);
-    const top = -f.d10 - 0.3;
-    const flap = Math.sin(t * 5) * 0.06;
-    for (const s of [-1, 1]) { ctx.save(); ctx.translate(s * 0.55, -f.d10 * 0.5); wing(ctx, s, flap); ctx.restore(); }
-    helmetShell(ctx, f, { top, low: -0.02, side: 0.58, open: 0.46 });
-    const g = ctx.createRadialGradient(-0.2, top + 0.12, 0.02, 0, top + 0.3, 0.9);
-    g.addColorStop(0, '#FFF8C8'); g.addColorStop(0.35, '#FFD23F'); g.addColorStop(1, '#C27C00');
-    sticker(ctx, g, '#6B3F00', 0.02, { y0: top, y1: 0 });
-    ctx.beginPath(); ctx.moveTo(-0.58, -f.d10 * 0.42); ctx.quadraticCurveTo(0, -f.d10 * 0.62, 0.58, -f.d10 * 0.42);
-    ctx.strokeStyle = '#B06A00'; ctx.lineWidth = 0.03; ctx.stroke();
-    const by = (top - f.d10 * 0.72) / 2;
-    ctx.save();
-    ctx.shadowColor = '#7FD8FF'; ctx.shadowBlur = pxs(ctx) * (0.05 + 0.03 * Math.sin(t * 6));
-    bolt(ctx, 0, by, 0.32); ctx.fillStyle = '#2E9BFF'; ctx.fill();
-    ctx.restore();
-    bolt(ctx, 0, by, 0.32); ctx.strokeStyle = '#0B2A66'; ctx.lineWidth = 0.014; ctx.stroke();
-    shine(ctx, -0.28, top + 0.16, 0.09, 0.03, 0.55, -0.6);
-    const { half } = eyeGeom(f);
-    for (const s of [-1, 1]) {
-      bolt(ctx, s * (half + 0.02), 0.2, 0.17);
-      ctx.fillStyle = '#FFD400'; ctx.fill(); ctx.strokeStyle = '#7A4B00'; ctx.lineWidth = 0.01; ctx.stroke();
-    }
-  });
-}
-
 function dinoHood(ctx, f, k, t) {
   local(ctx, f, f.eyes, () => {
     ctx.scale(k, k);
@@ -370,36 +309,6 @@ function ninjaHood(ctx, f, k, t) {
   });
 }
 
-function astroHelmet(ctx, f, k, t) {
-  local(ctx, f, f.eyes, () => {
-    ctx.scale(k, k);
-    const cy = (f.dChin - f.d10) / 2 - 0.02, r = Math.max(0.8, (f.dChin + f.d10) / 2 + 0.3);
-    const cyc = cy + r * 0.86;
-    ctx.beginPath(); ctx.ellipse(0, cyc, r * 0.82, 0.13, 0, 0, Math.PI * 2);
-    sticker(ctx, metal(ctx, 0, cyc - 0.13, 0, cyc + 0.13, ['#FFFFFF', '#E3E9F0', '#F4F7FA', '#9AA8B8']), '#3A4656', 0.018);
-    for (const [x, c, i] of [[-0.3, '#FF3B3B', 0], [-0.18, '#3BFF7A', 1], [0.28, '#2E9BFF', 2]]) {
-      const on = Math.floor(t * 2 + i) % 2 === 0;
-      ctx.beginPath(); ctx.arc(x, cyc + 0.02, 0.028, 0, Math.PI * 2); ctx.fillStyle = on ? c : '#4A5566'; ctx.fill();
-    }
-    // glass bubble
-    ctx.beginPath(); ctx.arc(0, cy, r, 0, Math.PI * 2);
-    const gg = ctx.createRadialGradient(-r * 0.3, cy - r * 0.35, r * 0.1, 0, cy, r);
-    gg.addColorStop(0, 'rgba(255,255,255,.12)'); gg.addColorStop(0.75, 'rgba(170,215,255,.10)'); gg.addColorStop(1, 'rgba(120,180,255,.35)');
-    ctx.fillStyle = gg; ctx.fill();
-    ctx.save(); ctx.shadowColor = 'rgba(12,8,24,.4)'; ctx.shadowBlur = pxs(ctx) * 0.05;
-    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 0.05; ctx.stroke(); ctx.restore();
-    ctx.strokeStyle = '#8796A8'; ctx.lineWidth = 0.014; ctx.stroke();
-    ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.arc(0, cy, r * 0.86, Math.PI * 1.08, Math.PI * 1.42);
-    ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 0.045; ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, cy, r * 0.86, Math.PI * 1.48, Math.PI * 1.55);
-    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 0.045; ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, cy, r * 0.88, Math.PI * 0.1, Math.PI * 0.28);
-    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 0.03; ctx.stroke();
-    ctx.beginPath(); star4(ctx, r * 0.45, cy - r * 0.62, 0.05 + 0.02 * Math.sin(t * 3)); ctx.fillStyle = '#FFFFFF'; ctx.fill();
-  });
-}
-
 function lionMane(ctx, f, k, t) {
   const P = f.P;
   local(ctx, f, f.eyes, () => {
@@ -445,33 +354,6 @@ function lionMane(ctx, f, k, t) {
     shine(ctx, -0.02, -0.03, 0.02, 0.01, 0.7);
     ctx.fillStyle = '#3A1E10';
     for (const s of [-1, 1]) for (const [x, y] of [[0.12, 0.08], [0.17, 0.06], [0.15, 0.12]]) { ctx.beginPath(); ctx.arc(s * x, y, 0.011, 0, Math.PI * 2); ctx.fill(); }
-  });
-}
-
-function knightHelmet(ctx, f, k, t) {
-  local(ctx, f, f.eyes, () => {
-    ctx.scale(k, k);
-    const top = -f.d10 - 0.32, brow = -f.d10 * 0.72;
-    const sway = Math.sin(t * 2.5) * 0.05;
-    for (let i = 0; i < 6; i++) {
-      const a = -1.9 + i * 0.26 + sway;
-      ctx.save(); ctx.translate(0.02, top + 0.02); ctx.rotate(a + Math.PI / 2);
-      ctx.beginPath(); ctx.ellipse(0, -0.3, 0.085, 0.32, 0, 0, Math.PI * 2);
-      const pg = ctx.createLinearGradient(0, -0.62, 0, 0); pg.addColorStop(0, '#FF6B6B'); pg.addColorStop(1, '#B3001F');
-      sticker(ctx, pg, '#5A0010', 0.01, { shadow: i === 0 });
-      ctx.restore();
-    }
-    helmetShell(ctx, f, { top, low: f.dChin * 0.5, side: 0.6, open: 0.44 });
-    sticker(ctx, metal(ctx, -0.6, top, 0.6, 0.5, STEEL), '#1E2836', 0.02, { y0: top, y1: f.dChin * 0.5 });
-    ctx.beginPath(); ctx.moveTo(0, top + 0.02); ctx.lineTo(0, brow);
-    ctx.strokeStyle = 'rgba(30,40,54,.5)'; ctx.lineWidth = 0.02; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-0.6, brow + 0.02); ctx.quadraticCurveTo(0, brow - 0.07, 0.6, brow + 0.02);
-    ctx.strokeStyle = '#8A97A8'; ctx.lineWidth = 0.05; ctx.stroke();
-    for (let i = -4; i <= 4; i++) if (i) rivet(ctx, i * 0.13, brow - 0.01 - (1 - (i / 4) ** 2) * 0.03, 0.017);
-    const nose = Math.hypot(f.P[4].x - f.eyes.x, f.P[4].y - f.eyes.y) / f.fw;
-    ctx.beginPath(); ctx.moveTo(-0.045, brow); ctx.lineTo(0.045, brow); ctx.lineTo(0.035, nose - 0.02); ctx.quadraticCurveTo(0, nose + 0.03, -0.035, nose - 0.02); ctx.closePath();
-    sticker(ctx, metal(ctx, -0.05, 0, 0.05, 0, STEEL), '#1E2836', 0.012);
-    shine(ctx, -0.32, top + 0.18, 0.1, 0.03, 0.6, -0.7);
   });
 }
 
@@ -1002,11 +884,10 @@ export function drawBackground(ctx, id, W, H, t) {
 // ───────────────────────────────────────────── compose
 export function drawMask(ctx, f, id, k, t) {
   if (id === 'eye') heroMask(ctx, f, k);
-  else if (id === 'robot') robotHelmet(ctx, f, k, t);
-  else if (id === 'thunder') thunderHelmet(ctx, f, k, t);
   else if (id === 'dino') dinoHood(ctx, f, k, t);
   else if (id === 'ninja') ninjaHood(ctx, f, k, t);
-  else if (id === 'astro') astroHelmet(ctx, f, k, t);
   else if (id === 'lion') lionMane(ctx, f, k, t);
-  else if (id === 'knight') knightHelmet(ctx, f, k, t);
 }
+
+// shared with gear3.js
+export { local, sticker, metal, bolt, star4, words, neckOf, mid, clamp01, seeded, bgCache, buildBg };

@@ -1,12 +1,15 @@
-// app.js — TJ's Hero Lab. Camera → MediaPipe face landmarks + body cut-out (on-device) → hero gear drawn on canvas.
+// app.js — TJ's Hero Lab. Camera → MediaPipe face landmarks + body cut-out (on-device) → WebGL engine (engine.js):
+// 3D helmets, GPU particles + bloom, shader effects, and 2D sticker gear painted into layers the engine composites.
 // Built for a 4-year-old pre-reader: every tap is spoken, previews instead of words, powers fire from the face
 // OR from tapping the screen.  ?demo uses test/face.jpg instead of the camera (&jaw=0.7 / &brow=0.8 fake a face).
 import { Tracker, computeFrame, FACE_OVAL } from './face.js';
 import {
-  MASKS, POWERS, GEAR, DRAWERS, ALL, popIn, drawMask, drawBadge, drawCape, drawCapeClasps, drawWings,
-  drawBackground, updateBreath, drawBreath, drawMouthGlow, drawLasers, breathLevel, surpriseLevel,
-  updateAuraSparks, drawAuraSparks, setMirror,
+  MASKS, POWERS, GEAR, LOOKS, DRAWERS, ALL, BG_LIGHT, popIn, drawMask, drawBadge, drawCape, drawCapeClasps, drawWings,
+  updateBreath, drawBreath, drawMouthGlow, drawLasers, breathLevel, surpriseLevel, setMirror,
 } from './gear.js';
+import { drawJetpack, drawDinoBuddy, drawPowerPreview, drawSpeedGhosts, drawAnyBackground } from './gear3.js';
+import { Engine } from './engine.js';
+import { buildHelmet, buildRoboBuddy } from './helmets3d.js';
 import * as sfx from './sfx.js';
 import * as voice from './voice.js';
 import * as gallery from './gallery.js';
@@ -20,11 +23,15 @@ const S = {
   facing: 'user', stream: null, landmarker: null, segmenter: null, gen: 0, raf: 0,
   lastVideoTime: -1, lastTs: 0, lastSegTs: 0, lastT: 0, tab: 'masks', busy: false,
   noFaceSince: 0, lumaAt: 0, dark: false, wake: null, saidFindAt: 0,
-  boostUntil: 0, powerUsedAt: 0, tapHinted: false,
+  boostUntil: 0, powerUsedAt: 0, tapHinted: false, shieldAt: 0, ripples: [], rippleAt: 0, frost: 0,
+  frameMs: 33, quality: 2, qAt: 0, ambAt: 0, segSkip: 0, capture: null,
   sel: Object.fromEntries(ALL.map((it) => [it.id, { on: false, at: 0 }])),
 };
 const tracker = new Tracker();
-const video = $('video'), canvas = $('canvas'), ctx = canvas.getContext('2d');
+const video = $('video'), canvas = $('canvas');
+let engine = null;
+try { engine = new Engine(canvas); } catch (e) { console.error('WebGL engine failed', e); }
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); location.reload(); });
 let demoImg = null;
 const isOn = (id) => S.sel[id].on;
 
@@ -58,61 +65,22 @@ function loadSegmenter() {
 }
 
 // ───────────────────────────────────────────── body cut-out
-const seg = { prev: null, img: null, ready: false };
-const maskCanvas = document.createElement('canvas'), maskCtx = maskCanvas.getContext('2d');
-const personCanvas = document.createElement('canvas'), personCtx = personCanvas.getContext('2d');
-const auraCanvas = document.createElement('canvas'), auraCtx = auraCanvas.getContext('2d');
-const smooth = (v) => { const t = Math.max(0, Math.min(1, (v - 0.35) / 0.4)); return t * t * (3 - 2 * t); };
-
+// The segmenter's person mask is smoothed over time and handed to the engine as a GPU texture.
+const seg = { prev: null, alpha: null, ready: false };
+const smooth = (v) => { const t = Math.max(0, Math.min(1, (v - 0.3) / 0.45)); return t * t * (3 - 2 * t); };
 function segment(src, ts) {
   try {
     S.segmenter.segmentForVideo(src, ts, (res) => {
       const m = res.confidenceMasks?.[0];
       if (!m) return;
-      const a = m.getAsFloat32Array(), w = m.width, h = m.height;
-      if (!seg.prev || seg.prev.length !== a.length) {
-        seg.prev = new Float32Array(a); seg.img = new ImageData(w, h);
-        maskCanvas.width = auraCanvas.width = w; maskCanvas.height = auraCanvas.height = h;
-      }
-      const p = seg.prev, d = seg.img.data;
-      for (let i = 0; i < a.length; i++) {
-        p[i] = p[i] * 0.35 + a[i] * 0.65;                   // temporal smoothing kills edge flicker
-        const j = i * 4;
-        d[j] = d[j + 1] = d[j + 2] = 255;
-        d[j + 3] = smooth(p[i]) * 255;
-      }
-      maskCtx.putImageData(seg.img, 0, 0);
+      const a = m.getAsFloat32Array();
+      if (!seg.prev || seg.prev.length !== a.length) { seg.prev = new Float32Array(a); seg.alpha = new Uint8Array(a.length); }
+      const p = seg.prev, out = seg.alpha;
+      for (let i = 0; i < a.length; i++) { p[i] = p[i] * 0.35 + a[i] * 0.65; out[i] = smooth(p[i]) * 255; }   // temporal smoothing kills edge flicker
+      engine.setMask(out, m.width, m.height);
       seg.ready = true;
     });
   } catch (e) { console.warn(e); }
-}
-function personLayer(src, W, H) {
-  if (personCanvas.width !== W || personCanvas.height !== H) { personCanvas.width = W; personCanvas.height = H; }
-  personCtx.globalCompositeOperation = 'copy';
-  personCtx.drawImage(maskCanvas, 0, 0, W, H);
-  personCtx.globalCompositeOperation = 'source-in';
-  personCtx.drawImage(src, 0, 0, W, H);
-  personCtx.globalCompositeOperation = 'source-over';
-  return personCanvas;
-}
-function drawAura(W, H, t) {
-  const pulse = 0.75 + 0.25 * Math.sin(t * 4);
-  auraCtx.globalCompositeOperation = 'copy';
-  auraCtx.filter = 'blur(7px)';
-  auraCtx.drawImage(maskCanvas, 0, 0);
-  auraCtx.filter = 'none';
-  auraCtx.globalCompositeOperation = 'source-in';
-  const g = auraCtx.createLinearGradient(0, 0, 0, auraCanvas.height);
-  g.addColorStop(0, '#FFE45C'); g.addColorStop(1, '#25B5FF');
-  auraCtx.fillStyle = g; auraCtx.fillRect(0, 0, auraCanvas.width, auraCanvas.height);
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = pulse;
-  for (const s of [1.06, 1.02]) {
-    const w = W * s, h = H * s;
-    ctx.drawImage(auraCanvas, (W - w) / 2, (H - h) / 2, w, h);
-  }
-  ctx.restore();
 }
 
 // ───────────────────────────────────────────── camera
@@ -141,7 +109,7 @@ function stopSource() {
   cancelAnimationFrame(S.raf); S.raf = 0;
   S.stream?.getTracks().forEach((t) => t.stop()); S.stream = null; video.srcObject = null;
   S.wake?.release?.().catch(() => {}); S.wake = null;
-  tracker.reset(); seg.ready = false; seg.prev = null;
+  tracker.reset(); seg.ready = false; seg.prev = null; S.ripples = [];
   S.lastVideoTime = -1; S.noFaceSince = 0;
   sfx.silenceLoops();
 }
@@ -171,6 +139,8 @@ function showError(e) {
     text = 'Another app is using the camera. Close it, then tap Try again.';
   } else if (n === 'InsecureError') {
     text = 'The camera only works from the real Hero Lab link (https). Open it from the home-screen icon.';
+  } else if (n === 'NoWebGL') {
+    text = "This tablet's graphics can't run the Hero Lab. Try updating Chrome.";
   } else if (e?.stage === 'model') {
     text = "The Hero Lab couldn't finish loading. Check the Wi-Fi, then tap Try again.";
   } else {
@@ -186,6 +156,7 @@ function showError(e) {
 
 async function openStudio(facing, push = false) {
   sfx.unlock();
+  if (!engine) { showScreen('studio'); showError(Object.assign(new Error('no webgl'), { name: 'NoWebGL' })); return; }
   S.facing = facing;
   if (push && document.body.dataset.screen !== 'studio') openLayer('studio');
   showScreen('studio');
@@ -220,18 +191,24 @@ function loop() {
 }
 const bgId = () => GEAR.find((it) => it.group === 'bg' && isOn(it.id))?.id || null;
 const breathOn = () => POWERS.find((it) => it.group === 'breath' && isOn(it.id))?.id || null;
+const eyesOn = () => POWERS.find((it) => it.group === 'eyes' && isOn(it.id))?.id || null;
+const lookOn = () => LOOKS.find((it) => isOn(it.id))?.look || 0;
+const ambCanvas = document.createElement('canvas'); ambCanvas.width = ambCanvas.height = 8;
+const ambCtx = ambCanvas.getContext('2d', { willReadFrequently: true });
 
 function frame() {
   const src = DEMO ? demoImg : video;
   if (!src) return;
   const W = DEMO ? src.naturalWidth : src.videoWidth, H = DEMO ? src.naturalHeight : src.videoHeight;
   if (!W || !H) return;
-  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+  engine.setSource(src, W, H, !DEMO);
   const now = performance.now(), t = now / 1000;
   const dt = Math.min(0.05, Math.max(0.001, t - (S.lastT || t))); S.lastT = t;
+  governor(dt * 1000, now);
   const fresh = S.landmarker && (DEMO || video.currentTime !== S.lastVideoTime);
-  const bg = bgId();
-  const wantSeg = !!S.segmenter && (isOn('cape') || isOn('wings') || isOn('aura') || !!bg);
+  const bg = bgId(), look = lookOn(), mask = MASKS.find((it) => isOn(it.id)), breath = breathOn(), eyes = eyesOn();
+  const behind = GEAR.filter((g) => g.behind && isOn(g.id));
+  const wantSeg = !!S.segmenter && (behind.length > 0 || isOn('aura') || isOn('speed') || isOn('invisible') || !!bg);
 
   if (fresh) {
     S.lastVideoTime = video.currentTime;
@@ -242,50 +219,108 @@ function frame() {
       tracker.update(res, W, H, FAKE.jaw);
       if (FAKE.brow) for (const f of tracker.faces) f.bs.browInnerUp = FAKE.brow;
     }
-    if (wantSeg) { const st = Math.max(now, S.lastSegTs + 1); S.lastSegTs = st; segment(src, st); }
+    // on the lowest quality tier, cut out the body every other frame
+    if (wantSeg && (S.quality > 0 || (S.segSkip++ % 2 === 0))) { const st = Math.max(now, S.lastSegTs + 1); S.lastSegTs = st; segment(src, st); }
   }
   const segOK = wantSeg && seg.ready;
-
   const m = isMirror();
   setMirror(m);
-  ctx.setTransform(m ? -1 : 1, 0, 0, 1, m ? W : 0, 0);
-  if (bg && segOK) drawBackground(ctx, bg, W, H, t);
-  else ctx.drawImage(src, 0, 0, W, H);
-
   const k = (id) => popIn(S.sel[id].at, t);
-  if (segOK) {
-    if (isOn('aura')) drawAura(W, H, t);
-    if (isOn('wings')) for (const f of tracker.faces) drawWings(ctx, f, k('wings'), t);
-    if (isOn('cape')) for (const f of tracker.faces) drawCape(ctx, f, k('cape'), t, H);
-    if (!Q.has('nocut')) ctx.drawImage(personLayer(src, W, H), 0, 0);   // the person goes back on top (?nocut = debug: skip)
-  }
-
-  // powers: from the face, or from tapping the screen
   const boost = now < S.boostUntil ? 1 : 0;
-  const breath = breathOn();
-  const lv = { fire: 0, ice: 0, bubble: 0, shout: 0, laser: 0 };
-  for (const f of tracker.faces) {
-    updateAuraSparks(f, isOn('aura'), dt);
-    drawAuraSparks(ctx, f);
-    if (isOn('cape')) drawCapeClasps(ctx, f, k('cape'));
-    if (isOn('badge')) drawBadge(ctx, f, k('badge'), t);
-    const mask = MASKS.find((it) => isOn(it.id));
-    if (mask) drawMask(ctx, f, mask.id, k(mask.id), t);
-    const bl = breath ? Math.max(breathLevel(f), boost) : 0;
-    updateBreath(f, breath || 'fire', bl, dt);
-    drawMouthGlow(ctx, f, breath, bl);
-    drawBreath(ctx, f);
-    if (breath) lv[breath] = Math.max(lv[breath], bl);
-    if (isOn('laser')) {
-      const ll = Math.max(surpriseLevel(f), boost);
-      drawLasers(ctx, f, ll, t);
-      lv.laser = Math.max(lv.laser, ll);
+  const faces = tracker.faces;
+
+  // ── 2D layers (painted in camera pixels; the engine scales them)
+  if (bg && segOK) drawAnyBackground(engine.layer('bg'), bg, W, H, t);
+  let nozzles = [];
+  if (segOK && behind.length) {
+    const c = engine.layer('behind');
+    for (const f of faces) {
+      if (isOn('wings')) drawWings(c, f, k('wings'), t);
+      if (isOn('jetpack')) nozzles = nozzles.concat(drawJetpack(c, f, k('jetpack'), t));
+      if (isOn('cape')) drawCape(c, f, k('cape'), t, H);
     }
   }
+  const twoD = (mask && !mask.is3d) || isOn('cape') || isOn('badge');
+  const topD = isOn('dinobud') || breath === 'bubble' || breath === 'shout';
+  const lv = { fire: 0, ice: 0, bubble: 0, shout: 0, laser: 0, crackle: 0 };
+  const front = twoD && faces.length ? engine.layer('front') : null;
+  const top = topD && faces.length ? engine.layer('top') : null;
+  let heat = null;
+
+  // ── per face: 2D stickers, 3D pieces, GPU effects
+  engine.syncHeads(faces);
+  for (const f of faces) {
+    const bl = breath ? Math.max(breathLevel(f), boost) : 0;
+    const el = eyes ? Math.max(surpriseLevel(f), boost) : 0;
+    if (front) {
+      if (isOn('cape') && segOK) drawCapeClasps(front, f, k('cape'));
+      if (isOn('badge')) drawBadge(front, f, k('badge'), t);
+      if (mask && !mask.is3d) drawMask(front, f, mask.id, k(mask.id), t);
+    }
+    if (top) {
+      if (isOn('dinobud')) drawDinoBuddy(top, f, k('dinobud'), t);
+      if (breath === 'bubble' || breath === 'shout') { updateBreath(f, breath, bl, dt); drawBreath(top, f); }
+    }
+    engine.setHelmet(f, mask?.is3d ? mask.id : null, mask?.is3d ? k(mask.id) : 1, t, f.bs);
+    engine.setRobo(f, isOn('robo'), k('robo'), t);
+    engine.setShield(f, isOn('shield'), Math.max(0, 1 - (now - S.shieldAt) / 700), t);
+    if (breath === 'fire' || breath === 'ice' || breath === 'rainbow') engine.breath(f, breath, bl, dt);
+    if (breath) { const key = breath === 'rainbow' ? 'ice' : breath; lv[key] = Math.max(lv[key], bl * (breath === 'rainbow' ? 0.6 : 1)); }
+    if (breath === 'fire' && bl > 0.05) {
+      const mx = (f.P[13].x + f.P[14].x) / 2, my = (f.P[13].y + f.P[14].y) / 2 + f.fw * 0.55;
+      heat = { x: mx / W, y: 1 - my / H, r: (f.fw * 0.9) / H, str: bl };
+    }
+    if (breath === 'shout' && bl > 0.3 && t - S.rippleAt > 0.35) {
+      S.rippleAt = t;
+      const mx = (f.P[13].x + f.P[14].x) / 2, my = (f.P[13].y + f.P[14].y) / 2;
+      S.ripples.push({ x: mx / W, y: 1 - my / H, age: 0, str: bl });
+      if (S.ripples.length > 4) S.ripples.shift();
+    }
+    if (eyes === 'laser') engine.lasers(f, el, t);
+    if (eyes === 'hypno') engine.hypno(f, el, t);
+    if (eyes) lv.laser = Math.max(lv.laser, el * (eyes === 'hypno' ? 0.5 : 1));
+    engine.lightningFx(f, isOn('lightning'), t, !!boost);
+    if (isOn('lightning')) lv.crackle = Math.max(lv.crackle, boost ? 1 : 0.35);
+    if (isOn('aura')) engine.auraSparks(f, dt);
+  }
+  if (nozzles.length) engine.jetFlames(nozzles, dt);
+  for (const r of S.ripples) r.age += dt;
+  S.ripples = S.ripples.filter((r) => r.age < 1.1);
+  const iceTarget = breath === 'ice' ? Math.max(0, ...faces.map((f) => Math.max(breathLevel(f), boost))) : 0;
+  S.frost += (iceTarget - S.frost) * Math.min(1, dt * 3);
+
+  // match the 3D lighting to the room every half second
+  if (now - S.ambAt > 500) {
+    S.ambAt = now;
+    try {
+      ambCtx.drawImage(src, 0, 0, 8, 8);
+      const d = ambCtx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0;
+      for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+      const n = (d.length / 4) * 255; engine.setAmbient(r / n, g / n, b / n);
+    } catch {}
+  }
+
+  const light = bg ? BG_LIGHT[bg] : null;
+  engine.render({
+    t, dt, mirror: m, look, useBg: !!(bg && segOK), useMask: segOK,
+    aura: isOn('aura') ? 1 : 0, invis: isOn('invisible') ? 1 : 0, speed: isOn('speed') ? 1 : 0,
+    rim: light ? 0.9 : isOn('aura') ? 0.5 : 0, rimColor: light ? light.rim : [1.0, 0.85, 0.3], bgTint: light ? light.tint : [1, 1, 1],
+    ripples: S.ripples, heat, frost: S.frost,
+  });
+  if (S.capture) { const c = S.capture; S.capture = null; c(); }   // read the canvas in the same task it was drawn
+
   for (const [kind, level] of Object.entries(lv)) sfx.loop(kind, level);
-  if (Math.max(...Object.values(lv)) > 0.5 && !boost) S.powerUsedAt = now;
+  if (Math.max(lv.fire, lv.ice, lv.bubble, lv.shout, lv.laser) > 0.5 && !boost) S.powerUsedAt = now;
   powerHints(lv);
   hints(now, src);
+}
+
+// Keep it smooth on a mid-range tablet: step effects down when frames get slow, back up when there's headroom.
+function governor(ms, now) {
+  S.frameMs += (ms - S.frameMs) * 0.05;
+  if (now - S.qAt < 2500 || Q.has('hq')) return;
+  if (S.frameMs > 48 && S.quality > 0) { S.quality--; S.qAt = now; engine.setQuality(S.quality); console.info('quality →', S.quality); }
+  else if (S.frameMs < 26 && S.quality < 2 && now - S.qAt > 8000) { S.quality++; S.qAt = now; engine.setQuality(S.quality); console.info('quality →', S.quality); }
 }
 
 // ───────────────────────────────────────────── hints
@@ -297,7 +332,7 @@ function setPowerHint(text) {
 // Show "😮 → 🔥" for each selected power that has a face trigger, until he's using it.
 function powerHints(lv) {
   const active = POWERS.filter((p) => p.trigger && isOn(p.id));
-  const firing = Math.max(...Object.values(lv)) > 0.3;
+  const firing = Math.max(lv.fire, lv.ice, lv.bubble, lv.shout, lv.laser) > 0.3;
   setPowerHint(active.length && tracker.faces.length && !firing ? active.map((p) => p.hint).join('   ') : '');
 }
 const lumaCanvas = document.createElement('canvas'); lumaCanvas.width = lumaCanvas.height = 24;
@@ -332,11 +367,11 @@ async function loadPreviewFace() {
   try { PREVIEW = await (await fetch('preview-face.json')).json(); } catch { PREVIEW = null; }
 }
 function previewFace(cx, cy, fw, bs = {}) {
-  const f = { P: PREVIEW.map(([x, y]) => ({ x: cx + x * fw, y: cy + y * fw })), bs };
+  const f = { P: PREVIEW.map(([x, y, z = 0]) => ({ x: cx + x * fw, y: cy + y * fw, z: z * fw })), bs };
   computeFrame(f);
   return f;
 }
-function cartoonHead(x, f, mouthOpen) {
+function cartoonHead(x, f, mouthOpen, skin = '#6B3E1F') {
   const P = f.P;
   // shoulders + shirt
   x.beginPath(); x.ellipse(P[152].x, P[152].y + f.fw * 0.95, f.fw * 0.95, f.fw * 0.6, 0, 0, Math.PI * 2);
@@ -345,7 +380,7 @@ function cartoonHead(x, f, mouthOpen) {
   // head (deep brown) from the face outline
   x.beginPath();
   FACE_OVAL.forEach((i, n) => (n ? x.lineTo(P[i].x, P[i].y) : x.moveTo(P[i].x, P[i].y)));
-  x.closePath(); x.fillStyle = '#6B3E1F'; x.fill();
+  x.closePath(); x.fillStyle = skin; x.fill();
   // hair cap
   x.beginPath(); x.ellipse(P[10].x, P[10].y + f.fw * 0.05, f.fw * 0.5, f.fw * 0.2, 0, Math.PI, Math.PI * 2); x.fillStyle = '#1B1210'; x.fill();
   for (const i of [468, 473]) { x.beginPath(); x.arc(P[i].x, P[i].y, f.fw * 0.055, 0, Math.PI * 2); x.fillStyle = '#FFFFFF'; x.fill(); x.beginPath(); x.arc(P[i].x, P[i].y, f.fw * 0.03, 0, Math.PI * 2); x.fillStyle = '#14161C'; x.fill(); }
@@ -357,53 +392,76 @@ function cartoonHead(x, f, mouthOpen) {
 }
 function renderPreview(cv, item) {
   setMirror(false);
-  const dpr = Math.min(2, devicePixelRatio || 1), px = 92 * dpr;
+  const dpr = Math.min(2, devicePixelRatio || 1), px = Math.round(92 * dpr);
   cv.width = cv.height = px;
   const x = cv.getContext('2d');
   x.scale(px / 100, px / 100);
   const t = 1.3;
   if (item.group === 'bg') {
-    drawBackground(x, item.id, 100, 100, t);
+    drawAnyBackground(x, item.id, 100, 100, t);
     cartoonHead(x, previewFace(50, 52, 30), false);
     return;
   }
+  if (item.group === 'look') {                       // run the real filter over a little hero scene
+    const src = document.createElement('canvas'); src.width = src.height = 184;
+    const sx = src.getContext('2d'); sx.scale(1.84, 1.84);
+    drawAnyBackground(sx, 'city', 100, 100, t);
+    const f = previewFace(50, 56, 40); cartoonHead(sx, f, false); drawMask(sx, f, 'eye', 1, t);
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    try { x.drawImage(engine.previewLook(item.look, src), 0, 0, px, px); } catch (e) { console.warn(e); x.drawImage(src, 0, 0, px, px); }
+    return;
+  }
   const layout = {
-    badge: [50, 26, 30], cape: [50, 30, 26], wings: [50, 40, 22], fire: [50, 30, 34], ice: [50, 30, 34], bubble: [50, 18, 52],
-    shout: [50, 18, 48], laser: [50, 30, 34], aura: [50, 42, 34], astro: [50, 50, 34], lion: [50, 54, 32],
-  }[item.id] || [50, 56, 42];
+    badge: [50, 26, 30], cape: [50, 30, 26], wings: [50, 40, 22], jetpack: [50, 30, 24], dinobud: [42, 34, 34], robo: [38, 74, 52],
+    fire: [50, 30, 34], ice: [50, 30, 34], rainbow: [50, 26, 34], bubble: [50, 18, 52], shout: [50, 18, 48], laser: [50, 30, 34], hypno: [50, 44, 46],
+    aura: [50, 42, 34], lightning: [50, 50, 34], shield: [50, 52, 36], speed: [62, 50, 38], invisible: [50, 50, 40],
+    astro: [50, 54, 30], lion: [50, 54, 32], diver: [50, 54, 30], crown: [50, 64, 34], viking: [50, 62, 32], dragon: [50, 62, 34], knight: [50, 60, 34], samurai: [50, 56, 34],
+  }[item.id] || [50, 58, 40];
   const f = previewFace(...layout, { jawOpen: 1, browInnerUp: 1 });
   if (item.id === 'cape') drawCape(x, f, 1, t, 100);
   if (item.id === 'wings') drawWings(x, f, 1, t);
+  if (item.id === 'jetpack') drawJetpack(x, f, 1, t);
+  if (item.id === 'speed') drawSpeedGhosts(x, f, (col) => cartoonHead(x, f, false, col));
   if (item.id === 'aura') {
     x.save(); x.filter = 'blur(4px)'; x.globalAlpha = 0.9;
     x.beginPath(); x.ellipse(50, 56, 40, 46, 0, 0, Math.PI * 2);
     const g = x.createLinearGradient(0, 10, 0, 100); g.addColorStop(0, '#FFE45C'); g.addColorStop(1, '#25B5FF');
     x.fillStyle = g; x.fill(); x.restore();
   }
-  cartoonHead(x, f, item.trigger === 'mouth');
+  if (item.id === 'invisible') { x.save(); x.globalAlpha = 0.28; cartoonHead(x, f, false, '#9FD8FF'); x.restore(); }
+  else cartoonHead(x, f, item.trigger === 'mouth');
   if (item.id === 'cape') drawCapeClasps(x, f, 1);
   if (item.id === 'badge') drawBadge(x, f, 1, t);
-  if (MASKS.includes(item)) drawMask(x, f, item.id, 1, t);
-  if (item.trigger === 'mouth') {
+  if (item.id === 'dinobud') drawDinoBuddy(x, f, 1, t);
+  if (MASKS.includes(item) && !item.is3d) drawMask(x, f, item.id, 1, t);
+  if (item.is3d) {                                   // real 3D render of the helmet / robot buddy on the cartoon head
+    try {
+      const pic = engine.preview3D(() => (item.id === 'robo' ? buildRoboBuddy() : buildHelmet(item.id)), f);
+      x.save(); x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(pic, 0, 0, px, px); x.restore();
+    } catch (e) { console.warn(e); }
+  }
+  if (item.id === 'fire' || item.id === 'ice' || item.id === 'bubble' || item.id === 'shout') {
     for (let i = 0; i < 26; i++) updateBreath(f, item.id, 1, 1 / 30);
     // the simulated bubbles/words come out too small to read at tile size: stage a bigger version
     if (item.id === 'bubble') f.fx.parts = [[28, 58, 9, 0], [44, 76, 11, 90], [64, 64, 8, 200], [73, 84, 6, 300], [24, 84, 6, 140]]
-      .map(([px, py, r, hue]) => ({ kind: 'bubble', x: px, y: py, r, hue, age: 0.6, life: 2, vx: 0, vy: 0, spin: 0 }));
+      .map(([bx, by, r, hue]) => ({ kind: 'bubble', x: bx, y: by, r, hue, age: 0.6, life: 2, vx: 0, vy: 0, spin: 0 }));
     if (item.id === 'shout') f.fx.words = [{ x: 50, y: 82, age: 0.4, fw: 56, w: 'POW!', rot: -0.12 }];
     drawMouthGlow(x, f, item.id, 1); drawBreath(x, f);
   }
   if (item.id === 'laser') drawLasers(x, f, 1.5, t);
+  drawPowerPreview(x, f, item.id);
 }
 const EMOJI = {
-  eye: '🦸🏿‍♂️', robot: '🤖', thunder: '⚡', dino: '🦖', ninja: '🥷🏿', astro: '🧑🏿‍🚀', lion: '🦁', knight: '🛡️',
-  fire: '🔥', ice: '❄️', bubble: '🫧', shout: '💥', laser: '👀', aura: '✨',
-  cape: '🧣', wings: '🪽', badge: '⚡', city: '🌃', space: '🪐', dinoland: '🌋', sky: '☁️',
+  eye: '🦸🏿‍♂️', robot: '🤖', thunder: '⚡', dino: '🦖', race: '🏎️', astro: '🧑🏿‍🚀', knight: '🛡️', dragon: '🐉', ninja: '🥷🏿', viking: '🪓', crown: '👑', mech: '🤖', lion: '🦁', samurai: '⛩️', diver: '🤿', fireman: '🚒',
+  fire: '🔥', ice: '❄️', rainbow: '🌈', bubble: '🫧', shout: '💥', laser: '👀', hypno: '🌀', lightning: '⚡', aura: '✨', shield: '🛡️', speed: '💨', invisible: '👻',
+  cape: '🧣', wings: '🪽', jetpack: '🚀', badge: '⚡', robo: '🤖', dinobud: '🦕', city: '🌃', space: '🪐', dinoland: '🌋', sky: '☁️', underwater: '🐠', snow: '🏔️', track: '🏁', hq: '🖥️',
+  comic: '💬', cartoon: '🎨', pixel: '👾', night: '🌙', thermal: '🌡️', holo: '💠',
 };
 const previews = new Map();                         // rendered once, re-used on every tray render
 function previewFor(item) {
   if (!previews.has(item.id)) {
     const cv = document.createElement('canvas');
-    if (PREVIEW) { try { renderPreview(cv, item); } catch (e) { console.warn(e); } }
+    if (PREVIEW && engine) { try { renderPreview(cv, item); } catch (e) { console.warn(e); } }
     previews.set(item.id, cv);
   }
   return previews.get(item.id);
@@ -422,7 +480,7 @@ function renderTray(popId) {
     b.dataset.id = it.id;
     b.setAttribute('aria-pressed', String(isOn(it.id)));
     b.setAttribute('aria-label', it.name);
-    if (PREVIEW) b.append(previewFor(it));
+    if (PREVIEW && engine) b.append(previewFor(it));
     else { const e = document.createElement('span'); e.className = 'tile-ico'; e.textContent = EMOJI[it.id]; b.append(e); }
     const n = document.createElement('span'); n.className = 'tile-name'; n.textContent = it.name; n.setAttribute('aria-hidden', 'true');
     const c = document.createElement('span'); c.className = 'tile-check'; c.textContent = '✓'; c.setAttribute('aria-hidden', 'true');
@@ -436,7 +494,7 @@ function toggle(id) {
   if (s.on) {
     s.on = false; sfx.off();
   } else {
-    // one mask at a time; one breath at a time; one background at a time
+    // one mask at a time; one breath, one eye power, one background, one look at a time
     const rivals = MASKS.includes(it) ? MASKS : it.group ? ALL.filter((x) => x.group === it.group) : [];
     for (const r of rivals) S.sel[r.id].on = false;
     s.on = true; s.at = performance.now() / 1000;
@@ -467,7 +525,8 @@ function clearAll() {
 // Tap anywhere on the camera picture to fire every power that's on.
 $('stage').addEventListener('pointerdown', (e) => {
   if (e.target.closest('button') || document.body.dataset.screen !== 'studio' || !$('loading').hidden || !$('error').hidden) return;
-  if (!POWERS.some((p) => p.trigger && isOn(p.id))) {
+  if (isOn('shield')) S.shieldAt = performance.now();
+  if (!POWERS.some((p) => (p.trigger || p.id === 'shield' || p.id === 'lightning') && isOn(p.id))) {
     // no power to fire yet: answer the tap anyway and point at the Powers drawer
     sfx.sparkle(); voice.say('pick_power');
     const tab = document.querySelector('[data-tab=powers]');
@@ -516,8 +575,12 @@ async function shoot() {
     S.busy = false; $('shutter').disabled = false;
   }
 }
-// Save exactly what's on screen: the canvas is object-fit: cover, so crop to the visible part.
+// WebGL clears its picture after each frame, so the copy happens inside the next frame, right after it's drawn.
 function snapshot() {
+  return new Promise((res, rej) => { S.capture = () => { try { copyFrame().then(res, rej); } catch (e) { rej(e); } }; });
+}
+// Save exactly what's on screen: the canvas is object-fit: cover, so crop to the visible part.
+function copyFrame() {
   const r = canvas.getBoundingClientRect(), cw = canvas.width, ch = canvas.height;
   const scale = Math.max(r.width / cw, r.height / ch);
   const vw = r.width / scale, vh = r.height / scale;
@@ -674,4 +737,4 @@ if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.
 }
 
 // test hook
-window.__hero = { S, tracker, toggle, frame, seg };
+window.__hero = { S, tracker, toggle, frame, seg, engine };
