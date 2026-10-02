@@ -157,14 +157,14 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 .tray { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .tile {
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  min-height: 136px; padding: 8px 4px; border-radius: var(--radius);
+  min-height: 118px; padding: 6px 4px; border-radius: var(--radius);
   background: var(--panel-2); color: var(--ink);
   box-shadow: inset 0 0 0 3px transparent;
   transition: transform .12s ease, box-shadow .12s ease;
 }
 .tile:active { transform: scale(.93); }
 .tile-ico { font-size: 46px; line-height: 1; }
-.tile canvas { width: 92px; height: 92px; display: block; pointer-events: none; }
+.tile canvas { width: 80px; height: 80px; display: block; pointer-events: none; }
 .tile-name { font-size: 18px; font-weight: 700; }
 .tile-dot { position: absolute; left: 10px; top: 10px; width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px var(--ink); }
 .tile-check {
@@ -227,7 +227,7 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 @media (orientation: landscape) and (min-width: 600px) {
   .studio { flex-direction: row; }
   .dock { width: 400px; border-top: 0; border-left: 3px solid var(--pink); overflow-y: auto; justify-content: flex-start; padding-top: max(16px, env(safe-area-inset-top)); }
-  .tray { grid-template-columns: repeat(2, 1fr); }
+  .tray { grid-template-columns: repeat(3, 1fr); }
   .shutter-row { margin-top: auto; }
   .power-hint { top: 76px; }
   .start-actions .big { flex: 1; }

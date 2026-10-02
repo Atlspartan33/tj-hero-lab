@@ -3,8 +3,9 @@
 // OR from tapping the screen.  ?demo uses test/face.jpg instead of the camera (&jaw=0.7 / &brow=0.8 fake a face).
 import { Tracker, computeFrame, FACE_OVAL } from './face.js';
 import {
-  MASKS, POWERS, GEAR, DRAWERS, ALL, popIn, drawMask, drawBadge, drawCape, drawCapeClasps,
-  drawBackground, updateBreath, drawBreath, drawLasers, breathLevel, surpriseLevel,
+  MASKS, POWERS, GEAR, DRAWERS, ALL, popIn, drawMask, drawBadge, drawCape, drawCapeClasps, drawWings,
+  drawBackground, updateBreath, drawBreath, drawMouthGlow, drawLasers, breathLevel, surpriseLevel,
+  updateAuraSparks, drawAuraSparks, setMirror,
 } from './gear.js';
 import * as sfx from './sfx.js';
 import * as voice from './voice.js';
@@ -19,7 +20,7 @@ const S = {
   facing: 'user', stream: null, landmarker: null, segmenter: null, gen: 0, raf: 0,
   lastVideoTime: -1, lastTs: 0, lastSegTs: 0, lastT: 0, tab: 'masks', busy: false,
   noFaceSince: 0, lumaAt: 0, dark: false, wake: null, saidFindAt: 0,
-  boostUntil: 0, powerUsedAt: 0, tapHinted: false, levels: { fire: 0, ice: 0, laser: 0 },
+  boostUntil: 0, powerUsedAt: 0, tapHinted: false,
   sel: Object.fromEntries(ALL.map((it) => [it.id, { on: false, at: 0 }])),
 };
 const tracker = new Tracker();
@@ -217,7 +218,8 @@ function loop() {
   const tick = () => { S.raf = requestAnimationFrame(tick); frame(); };
   S.raf = requestAnimationFrame(tick);
 }
-const bgId = () => (isOn('city') ? 'city' : isOn('space') ? 'space' : null);
+const bgId = () => GEAR.find((it) => it.group === 'bg' && isOn(it.id))?.id || null;
+const breathOn = () => POWERS.find((it) => it.group === 'breath' && isOn(it.id))?.id || null;
 
 function frame() {
   const src = DEMO ? demoImg : video;
@@ -229,7 +231,7 @@ function frame() {
   const dt = Math.min(0.05, Math.max(0.001, t - (S.lastT || t))); S.lastT = t;
   const fresh = S.landmarker && (DEMO || video.currentTime !== S.lastVideoTime);
   const bg = bgId();
-  const wantSeg = !!S.segmenter && (isOn('cape') || isOn('aura') || !!bg);
+  const wantSeg = !!S.segmenter && (isOn('cape') || isOn('wings') || isOn('aura') || !!bg);
 
   if (fresh) {
     S.lastVideoTime = video.currentTime;
@@ -245,6 +247,7 @@ function frame() {
   const segOK = wantSeg && seg.ready;
 
   const m = isMirror();
+  setMirror(m);
   ctx.setTransform(m ? -1 : 1, 0, 0, 1, m ? W : 0, 0);
   if (bg && segOK) drawBackground(ctx, bg, W, H, t);
   else ctx.drawImage(src, 0, 0, W, H);
@@ -252,21 +255,25 @@ function frame() {
   const k = (id) => popIn(S.sel[id].at, t);
   if (segOK) {
     if (isOn('aura')) drawAura(W, H, t);
+    if (isOn('wings')) for (const f of tracker.faces) drawWings(ctx, f, k('wings'), t);
     if (isOn('cape')) for (const f of tracker.faces) drawCape(ctx, f, k('cape'), t, H);
     if (!Q.has('nocut')) ctx.drawImage(personLayer(src, W, H), 0, 0);   // the person goes back on top (?nocut = debug: skip)
   }
 
   // powers: from the face, or from tapping the screen
   const boost = now < S.boostUntil ? 1 : 0;
-  const breath = isOn('fire') ? 'fire' : isOn('ice') ? 'ice' : null;
-  const lv = { fire: 0, ice: 0, laser: 0 };
+  const breath = breathOn();
+  const lv = { fire: 0, ice: 0, bubble: 0, shout: 0, laser: 0 };
   for (const f of tracker.faces) {
+    updateAuraSparks(f, isOn('aura'), dt);
+    drawAuraSparks(ctx, f);
     if (isOn('cape')) drawCapeClasps(ctx, f, k('cape'));
     if (isOn('badge')) drawBadge(ctx, f, k('badge'), t);
     const mask = MASKS.find((it) => isOn(it.id));
     if (mask) drawMask(ctx, f, mask.id, k(mask.id), t);
     const bl = breath ? Math.max(breathLevel(f), boost) : 0;
     updateBreath(f, breath || 'fire', bl, dt);
+    drawMouthGlow(ctx, f, breath, bl);
     drawBreath(ctx, f);
     if (breath) lv[breath] = Math.max(lv[breath], bl);
     if (isOn('laser')) {
@@ -275,9 +282,8 @@ function frame() {
       lv.laser = Math.max(lv.laser, ll);
     }
   }
-  S.levels = lv;
-  sfx.loop('fire', lv.fire); sfx.loop('ice', lv.ice); sfx.loop('laser', lv.laser);
-  if (Math.max(lv.fire, lv.ice, lv.laser) > 0.5 && !boost) S.powerUsedAt = now;
+  for (const [kind, level] of Object.entries(lv)) sfx.loop(kind, level);
+  if (Math.max(...Object.values(lv)) > 0.5 && !boost) S.powerUsedAt = now;
   powerHints(lv);
   hints(now, src);
 }
@@ -291,7 +297,7 @@ function setPowerHint(text) {
 // Show "😮 → 🔥" for each selected power that has a face trigger, until he's using it.
 function powerHints(lv) {
   const active = POWERS.filter((p) => p.trigger && isOn(p.id));
-  const firing = Math.max(lv.fire, lv.ice, lv.laser) > 0.3;
+  const firing = Math.max(...Object.values(lv)) > 0.3;
   setPowerHint(active.length && tracker.faces.length && !firing ? active.map((p) => p.hint).join('   ') : '');
 }
 const lumaCanvas = document.createElement('canvas'); lumaCanvas.width = lumaCanvas.height = 24;
@@ -350,6 +356,7 @@ function cartoonHead(x, f, mouthOpen) {
   if (mouthOpen) { x.fillStyle = '#3A0E0E'; x.fill(); } else { x.strokeStyle = '#1B1210'; x.lineWidth = f.fw * 0.03; x.lineCap = 'round'; x.stroke(); }
 }
 function renderPreview(cv, item) {
+  setMirror(false);
   const dpr = Math.min(2, devicePixelRatio || 1), px = 92 * dpr;
   cv.width = cv.height = px;
   const x = cv.getContext('2d');
@@ -360,9 +367,13 @@ function renderPreview(cv, item) {
     cartoonHead(x, previewFace(50, 52, 30), false);
     return;
   }
-  const layout = { badge: [50, 26, 30], cape: [50, 30, 26], fire: [50, 30, 34], ice: [50, 30, 34], laser: [50, 30, 34], aura: [50, 42, 34] }[item.id] || [50, 56, 42];
+  const layout = {
+    badge: [50, 26, 30], cape: [50, 30, 26], wings: [50, 40, 22], fire: [50, 30, 34], ice: [50, 30, 34], bubble: [50, 34, 34],
+    shout: [50, 30, 30], laser: [50, 30, 34], aura: [50, 42, 34], astro: [50, 50, 34], lion: [50, 54, 32],
+  }[item.id] || [50, 56, 42];
   const f = previewFace(...layout, { jawOpen: 1, browInnerUp: 1 });
   if (item.id === 'cape') drawCape(x, f, 1, t, 100);
+  if (item.id === 'wings') drawWings(x, f, 1, t);
   if (item.id === 'aura') {
     x.save(); x.filter = 'blur(4px)'; x.globalAlpha = 0.9;
     x.beginPath(); x.ellipse(50, 56, 40, 46, 0, 0, Math.PI * 2);
@@ -373,10 +384,17 @@ function renderPreview(cv, item) {
   if (item.id === 'cape') drawCapeClasps(x, f, 1);
   if (item.id === 'badge') drawBadge(x, f, 1, t);
   if (MASKS.includes(item)) drawMask(x, f, item.id, 1, t);
-  if (item.trigger === 'mouth') { for (let i = 0; i < 26; i++) updateBreath(f, item.id, 1, 1 / 30); drawBreath(x, f); }
+  if (item.trigger === 'mouth') {
+    for (let i = 0; i < (item.id === 'bubble' ? 40 : 26); i++) updateBreath(f, item.id, 1, 1 / 30);
+    drawMouthGlow(x, f, item.id, 1); drawBreath(x, f);
+  }
   if (item.id === 'laser') drawLasers(x, f, 1.5, t);
 }
-const EMOJI = { eye: '🦸🏿‍♂️', robot: '🤖', thunder: '⚡', dino: '🦖', fire: '🔥', ice: '❄️', laser: '👀', aura: '✨', cape: '🧣', badge: '🛡️', city: '🌃', space: '🪐' };
+const EMOJI = {
+  eye: '🦸🏿‍♂️', robot: '🤖', thunder: '⚡', dino: '🦖', ninja: '🥷🏿', astro: '🧑🏿‍🚀', lion: '🦁', knight: '🛡️',
+  fire: '🔥', ice: '❄️', bubble: '🫧', shout: '💥', laser: '👀', aura: '✨',
+  cape: '🧣', wings: '🪽', badge: '⚡', city: '🌃', space: '🪐', dinoland: '🌋', sky: '☁️',
+};
 const previews = new Map();                         // rendered once, re-used on every tray render
 function previewFor(item) {
   if (!previews.has(item.id)) {

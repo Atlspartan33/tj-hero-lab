@@ -71,12 +71,20 @@ function makeLoop(kind) {
     o.start(); o2.start(); lfo.start();
     return { g, max: 0.05 };
   }
+  if (kind === 'bubble') {
+    // soft burbling: a sine whose pitch wobbles
+    const o = ac.createOscillator(), lfo = ac.createOscillator(), lg = ac.createGain();
+    o.type = 'sine'; o.frequency.value = 520; lfo.frequency.value = 6; lg.gain.value = 180;
+    lfo.connect(lg); lg.connect(o.frequency); o.connect(g); o.start(); lfo.start();
+    return { g, max: 0.06 };
+  }
   const src = ac.createBufferSource(), f = ac.createBiquadFilter();
   src.buffer = noiseBuf; src.loop = true;
   if (kind === 'fire') { f.type = 'lowpass'; f.frequency.value = 700; f.Q.value = 0.7; }
+  else if (kind === 'shout') { f.type = 'bandpass'; f.frequency.value = 220; f.Q.value = 1.2; }
   else { f.type = 'highpass'; f.frequency.value = 3500; }
   src.connect(f).connect(g); src.start();
-  return { g, max: kind === 'fire' ? 0.5 : 0.18 };
+  return { g, max: kind === 'fire' ? 0.5 : kind === 'shout' ? 0.55 : 0.18 };
 }
 export function loop(kind, level) {
   if (!ac) return;
