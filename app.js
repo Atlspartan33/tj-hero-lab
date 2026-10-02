@@ -368,8 +368,8 @@ function renderPreview(cv, item) {
     return;
   }
   const layout = {
-    badge: [50, 26, 30], cape: [50, 30, 26], wings: [50, 40, 22], fire: [50, 30, 34], ice: [50, 30, 34], bubble: [50, 34, 34],
-    shout: [50, 30, 30], laser: [50, 30, 34], aura: [50, 42, 34], astro: [50, 50, 34], lion: [50, 54, 32],
+    badge: [50, 26, 30], cape: [50, 30, 26], wings: [50, 40, 22], fire: [50, 30, 34], ice: [50, 30, 34], bubble: [50, 18, 52],
+    shout: [50, 18, 48], laser: [50, 30, 34], aura: [50, 42, 34], astro: [50, 50, 34], lion: [50, 54, 32],
   }[item.id] || [50, 56, 42];
   const f = previewFace(...layout, { jawOpen: 1, browInnerUp: 1 });
   if (item.id === 'cape') drawCape(x, f, 1, t, 100);
@@ -385,7 +385,11 @@ function renderPreview(cv, item) {
   if (item.id === 'badge') drawBadge(x, f, 1, t);
   if (MASKS.includes(item)) drawMask(x, f, item.id, 1, t);
   if (item.trigger === 'mouth') {
-    for (let i = 0; i < (item.id === 'bubble' ? 40 : 26); i++) updateBreath(f, item.id, 1, 1 / 30);
+    for (let i = 0; i < 26; i++) updateBreath(f, item.id, 1, 1 / 30);
+    // the simulated bubbles/words come out too small to read at tile size: stage a bigger version
+    if (item.id === 'bubble') f.fx.parts = [[28, 58, 9, 0], [44, 76, 11, 90], [64, 64, 8, 200], [73, 84, 6, 300], [24, 84, 6, 140]]
+      .map(([px, py, r, hue]) => ({ kind: 'bubble', x: px, y: py, r, hue, age: 0.6, life: 2, vx: 0, vy: 0, spin: 0 }));
+    if (item.id === 'shout') f.fx.words = [{ x: 50, y: 82, age: 0.4, fw: 56, w: 'POW!', rot: -0.12 }];
     drawMouthGlow(x, f, item.id, 1); drawBreath(x, f);
   }
   if (item.id === 'laser') drawLasers(x, f, 1.5, t);

@@ -237,7 +237,7 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 /* short landscape (8" tablets sideways, phones sideways): compact side panel */
 @media (orientation: landscape) and (min-width: 600px) and (max-height: 640px) {
   .dock { width: 340px; gap: 8px; padding: 10px 12px; }
-  .tab { min-height: 56px; font-size: 17px; }
+  .tab { min-height: 64px; font-size: 17px; }
   .go { font-size: 40px; min-height: 76px; }
   .tray { gap: 8px; }
   .tile { min-height: 96px; padding: 6px; }
@@ -259,7 +259,8 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 @media (max-width: 540px) {
   .dock { gap: 10px; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
   .brand { display: none; }
-  .tab { font-size: 16px; min-height: 60px; gap: 3px; }
+  .tab { font-size: 16px; min-height: 64px; gap: 3px; }
+  .tile-name { font-size: 12px; white-space: nowrap; }
   .tray { grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .tile { min-height: 100px; }
   .tile canvas { width: 64px; height: 64px; }

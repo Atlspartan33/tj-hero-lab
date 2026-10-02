@@ -1,4 +1,4 @@
-// lines.js — every spoken line. Recorded to audio/<id>.mp3 by scripts/voice-gen.mjs (same narrator as TJ's Hero Book).
+// lines.js — every spoken line. Recorded to audio/<id>.mp3 by scripts/voice-gen.mjs (Tyler, the Turbo TJ announcer).
 // If an mp3 is missing, the app falls back to the tablet's built-in voice.
 export const LINES = {
   start: "Let's suit up, hero!",
