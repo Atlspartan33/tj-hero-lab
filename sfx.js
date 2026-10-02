@@ -92,7 +92,7 @@ function makeLoop(kind) {
   else if (kind === 'shout') { f.type = 'bandpass'; f.frequency.value = 220; f.Q.value = 1.2; }
   else { f.type = 'highpass'; f.frequency.value = 3500; }
   src.connect(f).connect(g); src.start();
-  return { g, max: kind === 'fire' ? 0.5 : kind === 'shout' ? 0.55 : 0.18 };
+  return { g, max: kind === 'fire' ? 0.5 : kind === 'shout' ? 0.55 : 0.07 };
 }
 export function loop(kind, level) {
   if (!ac) return;

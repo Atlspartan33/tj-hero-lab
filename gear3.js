@@ -68,11 +68,14 @@ export function drawPowerPreview(ctx, f, id) {
       ctx.beginPath(); ctx.arc(e.x, e.y, fw * 0.07 * i, 0, Math.PI * 2); ctx.strokeStyle = `hsl(${i * 70 + 180},95%,60%)`; ctx.lineWidth = fw * 0.035; ctx.stroke();
     }
   } else if (id === 'lightning') {
-    ctx.strokeStyle = '#DDF2FF'; ctx.lineWidth = fw * 0.045; ctx.lineJoin = 'round'; ctx.shadowColor = '#5AB4FF'; ctx.shadowBlur = fw * 0.25;
-    for (const [sx, sy, dx] of [[P[234].x, P[234].y, -1], [P[454].x, P[454].y, 1], [P[10].x, P[10].y, 0]]) {
-      ctx.beginPath(); ctx.moveTo(sx, sy);
-      for (let i = 1; i <= 4; i++) ctx.lineTo(sx + dx * fw * 0.14 * i + (i % 2 ? 1 : -1) * fw * 0.08, sy - fw * 0.12 * i * (dx ? 0.4 : 1));
-      ctx.stroke();
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (const [w, col, blur] of [[0.16, 'rgba(90,170,255,.55)', 0.3], [0.07, '#FFFFFF', 0]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = fw * w; ctx.shadowColor = '#5AB4FF'; ctx.shadowBlur = fw * blur;
+      for (const [sx, sy, dx] of [[P[234].x, P[234].y, -1], [P[454].x, P[454].y, 1], [P[10].x, P[10].y, 0]]) {
+        ctx.beginPath(); ctx.moveTo(sx, sy);
+        for (let i = 1; i <= 4; i++) ctx.lineTo(sx + dx * fw * 0.16 * i + (i % 2 ? 1 : -1) * fw * 0.09, sy - fw * 0.13 * i * (dx ? 0.4 : 1));
+        ctx.stroke();
+      }
     }
   } else if (id === 'shield') {
     const c = mid(P[10], P[152]);

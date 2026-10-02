@@ -174,7 +174,7 @@ export function buildShield() {
         vec4 hc = hexCoords(uv * 3.0);
         float edge = smoothstep(0.42, 0.5, hexDist(hc.xy));
         float wave = 0.5 + 0.5 * sin(hc.w * 0.8 - uTime * 3.0 + hc.z * 0.5);
-        float a = fres * 0.55 + edge * fres * (0.1 + 0.25 * wave) + edge * 0.05 + uPulse * (0.2 + edge * 0.5);
+        float a = fres * 0.55 + edge * fres * (0.1 + 0.25 * wave) + edge * 0.05 + uPulse * (0.05 + edge * 0.25);
         gl_FragColor = vec4(uColor * a, a);
       }`,
     transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide,

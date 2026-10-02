@@ -162,9 +162,8 @@ void main() {
     vec3 sh = vec3(at(uv + vec2(0.004, 0.0)).r, c.g, at(uv - vec2(0.004, 0.0)).b);
     float L = lum(sh);
     c = vec3(0.25, 0.85, 1.0) * (L * 1.4 + 0.08);
-    c *= 0.75 + 0.25 * sin((uv.y + uTime * 0.12) * uRes.y * 0.9);
+    c *= 0.75 + 0.25 * sin(uv.y * uRes.y * 0.9);
     c += vec3(0.1, 0.4, 0.6) * step(0.985, fract(uv.y * 3.0 - uTime * 0.6)) ;
-    c *= 0.9 + 0.1 * hash(vec2(floor(uTime * 20.0), 1.0));
   }
   c = mix(orig, c, uLookMix);
   if (uFrost > 0.0) {                                                // frosty screen edges for ice breath
@@ -453,7 +452,7 @@ export class Engine {
     if (!on) { this.lightning.delete(f.id); return; }
     const H = this.H, P = f.P, OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 109, 67, 103, 54, 21, 162, 127, 234, 93, 132, 58];
     let st = this.lightning.get(f.id);
-    const every = boost ? 0.045 : 0.09;
+    const every = 0.34;                                // ~3 redraws a second: lively, never strobing
     if (!st || t - st.t > every) {
       const n = boost ? 7 : 3, bolts = [];
       const cx = (P[234].x + P[454].x) / 2, cy = (P[10].y + P[152].y) / 2;
@@ -544,7 +543,7 @@ export class Engine {
 
 // ───────────────────────────────────────────── tile pictures
 // Render one 3D piece onto a transparent canvas, posed on the preview face (100×100 tile units, y down).
-Engine.prototype.preview3D = function (build, f, size = 184) {
+Engine.prototype.preview3D = function (build, f, size = 184, t = 1.3) {
   const r = this.r;
   if (!this.pv) {
     const scene = new THREE.Scene();
@@ -559,7 +558,7 @@ Engine.prototype.preview3D = function (build, f, size = 184) {
   headMatrix(f, 100, anchor.matrix);
   const piece = build();
   anchor.add(buildOccluder(), piece.group);
-  piece.update?.(1.3, {});
+  piece.update?.(t, {});
   scene.add(anchor); anchor.updateMatrixWorld(true);
   const prevColor = new THREE.Color(); r.getClearColor(prevColor); const prevAlpha = r.getClearAlpha();
   r.setClearColor(0x000000, 0); r.setRenderTarget(rt); r.clear(); r.render(scene, cam);

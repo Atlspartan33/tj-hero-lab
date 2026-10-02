@@ -170,6 +170,7 @@ async function openStudio(facing, push = false) {
     loading(false);
     S.noFaceSince = performance.now();
     loop();
+    peekTray();
   } catch (e) {
     if (my === S.gen) showError(e);
   }
@@ -407,16 +408,17 @@ function renderPreview(cv, item) {
     const sx = src.getContext('2d'); sx.scale(1.84, 1.84);
     drawAnyBackground(sx, 'city', 100, 100, t);
     const f = previewFace(50, 56, 40); cartoonHead(sx, f, false); drawMask(sx, f, 'eye', 1, t);
+    if (item.id === 'comic') { f.fx = { parts: [], rings: [], words: [{ x: 74, y: 24, age: 0.4, fw: 44, w: 'POW!', rot: -0.15 }] }; drawBreath(sx, f); }
     x.setTransform(1, 0, 0, 1, 0, 0);
     try { x.drawImage(engine.previewLook(item.look, src), 0, 0, px, px); } catch (e) { console.warn(e); x.drawImage(src, 0, 0, px, px); }
     return;
   }
   const layout = {
-    badge: [50, 26, 30], cape: [50, 30, 26], wings: [50, 40, 22], jetpack: [50, 30, 24], dinobud: [42, 34, 34], robo: [38, 74, 52],
+    badge: [50, 26, 30], cape: [50, 30, 26], wings: [50, 40, 22], jetpack: [50, 30, 24], dinobud: [42, 34, 34], robo: [50, 74, 40],
     fire: [50, 30, 34], ice: [50, 30, 34], rainbow: [50, 26, 34], bubble: [50, 18, 52], shout: [50, 18, 48], laser: [50, 30, 34], hypno: [50, 44, 46],
     aura: [50, 42, 34], lightning: [50, 50, 34], shield: [50, 52, 36], speed: [62, 50, 38], invisible: [50, 50, 40],
     astro: [50, 54, 30], lion: [50, 54, 32], diver: [50, 54, 30], crown: [50, 64, 34], viking: [50, 62, 32], dragon: [50, 62, 34], knight: [50, 60, 34], samurai: [50, 56, 34],
-  }[item.id] || [50, 58, 40];
+  }[item.id] || [50, 62, 46];
   const f = previewFace(...layout, { jawOpen: 1, browInnerUp: 1 });
   if (item.id === 'cape') drawCape(x, f, 1, t, 100);
   if (item.id === 'wings') drawWings(x, f, 1, t);
@@ -436,7 +438,8 @@ function renderPreview(cv, item) {
   if (MASKS.includes(item) && !item.is3d) drawMask(x, f, item.id, 1, t);
   if (item.is3d) {                                   // real 3D render of the helmet / robot buddy on the cartoon head
     try {
-      const pic = engine.preview3D(() => (item.id === 'robo' ? buildRoboBuddy() : buildHelmet(item.id)), f);
+      const build = item.id === 'robo' ? () => { const p = buildRoboBuddy(); p.group.children[0].scale.setScalar(2.4); return p; } : () => buildHelmet(item.id);
+      const pic = engine.preview3D(build, f, 184, item.id === 'robo' ? 0 : 1.3);   // t=0 parks the robot buddy in front
       x.save(); x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(pic, 0, 0, px, px); x.restore();
     } catch (e) { console.warn(e); }
   }
@@ -489,6 +492,20 @@ function renderTray(popId) {
   }));
 }
 
+// The first time a drawer opens, slide it over and back so he sees there are more tiles to swipe to.
+const peeked = new Set();
+function peekTray() {
+  const tray = $('tray');
+  if (peeked.has(S.tab) || document.body.dataset.screen !== 'studio') return;
+  const landscape = matchMedia('(orientation: landscape) and (min-width: 600px)').matches;
+  const room = landscape ? tray.scrollHeight - tray.clientHeight : tray.scrollWidth - tray.clientWidth;
+  if (room < 20) return;
+  peeked.add(S.tab);
+  const go = (v) => tray.scrollTo(landscape ? { top: v, behavior: 'smooth' } : { left: v, behavior: 'smooth' });
+  setTimeout(() => { go(Math.min(160, room)); sfx.swoosh(); }, 350);
+  setTimeout(() => go(0), 1100);
+}
+
 function toggle(id) {
   const it = ALL.find((x) => x.id === id), s = S.sel[id];
   if (s.on) {
@@ -525,7 +542,7 @@ function clearAll() {
 // Tap anywhere on the camera picture to fire every power that's on.
 $('stage').addEventListener('pointerdown', (e) => {
   if (e.target.closest('button') || document.body.dataset.screen !== 'studio' || !$('loading').hidden || !$('error').hidden) return;
-  if (isOn('shield')) S.shieldAt = performance.now();
+  if (isOn('shield') && performance.now() - S.shieldAt > 700) S.shieldAt = performance.now();   // cooldown: mashing can't strobe it
   if (!POWERS.some((p) => (p.trigger || p.id === 'shield' || p.id === 'lightning') && isOn(p.id))) {
     // no power to fire yet: answer the tap anyway and point at the Powers drawer
     sfx.sparkle(); voice.say('pick_power');
@@ -722,7 +739,7 @@ document.querySelector('.dock').addEventListener('pointerdown', (e) => {
 });
 $('tray').onclick = (e) => { const b = e.target.closest('.tile'); if (b) toggle(b.dataset.id); };
 document.querySelectorAll('.tab').forEach((b) => {
-  b.onclick = () => { S.tab = b.dataset.tab; sfx.pop(); voice.say(`t_${S.tab}`); renderTabs(); renderTray(); };
+  b.onclick = () => { S.tab = b.dataset.tab; sfx.pop(); voice.say(`t_${S.tab}`); renderTabs(); renderTray(); $('tray').scrollTo(0, 0); peekTray(); };
 });
 
 renderTabs();
