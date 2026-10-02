@@ -1,5 +1,5 @@
 // sw.js — cache-first so the studio opens with no Wi-Fi after the first visit.
-const CACHE = 'hero-v3';   // bump on every release so tablets pick up new files
+const CACHE = 'hero-v4';   // bump on every release so tablets pick up new files
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'face.js', 'gear.js', 'gear3.js', 'engine.js', 'helmets3d.js', 'fx3d.js', 'sfx.js', 'voice.js', 'lines.js', 'gallery.js', 'preview-face.json',
   'manifest.webmanifest', 'icon-192.png', 'icon-512.png',

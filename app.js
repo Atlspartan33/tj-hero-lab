@@ -460,14 +460,35 @@ const EMOJI = {
   cape: '🧣', wings: '🪽', jetpack: '🚀', badge: '⚡', robo: '🤖', dinobud: '🦕', city: '🌃', space: '🪐', dinoland: '🌋', sky: '☁️', underwater: '🐠', snow: '🏔️', track: '🏁', hq: '🖥️',
   comic: '💬', cartoon: '🎨', pixel: '👾', night: '🌙', thermal: '🌡️', holo: '💠',
 };
-const previews = new Map();                         // rendered once, re-used on every tray render
+// Tile pictures are rendered once, one per frame in the background (3D ones are real renders and not free),
+// with the item's emoji standing in until its picture is ready. The open drawer's tiles go first.
+const previews = new Map(), previewQueue = [];
+let previewPump = 0;
 function previewFor(item) {
   if (!previews.has(item.id)) {
     const cv = document.createElement('canvas');
-    if (PREVIEW && engine) { try { renderPreview(cv, item); } catch (e) { console.warn(e); } }
-    previews.set(item.id, cv);
+    const px = Math.round(92 * Math.min(2, devicePixelRatio || 1));
+    cv.width = cv.height = px;
+    const x = cv.getContext('2d');
+    x.font = `${Math.round(px * 0.5)}px sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(EMOJI[item.id] || '⭐', px / 2, px / 2);
+    previews.set(item.id, { cv, done: false, item });
   }
-  return previews.get(item.id);
+  const p = previews.get(item.id);
+  if (!p.done) {                                       // (re)queue at the front: it's on screen now
+    const i = previewQueue.indexOf(p); if (i >= 0) previewQueue.splice(i, 1);
+    previewQueue.unshift(p);
+    if (!previewPump) previewPump = setTimeout(pumpPreviews, 30);
+  }
+  return p.cv;
+}
+function pumpPreviews() {
+  previewPump = 0;
+  const p = previewQueue.shift();
+  if (!p) return;
+  if (PREVIEW && engine) { try { renderPreview(p.cv, p.item); } catch (e) { console.warn(e); } }
+  p.done = true;
+  if (previewQueue.length) previewPump = setTimeout(pumpPreviews, 16);
 }
 
 function renderTabs() {
