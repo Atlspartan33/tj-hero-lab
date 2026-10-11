@@ -148,7 +148,7 @@ body[data-screen="studio"] #studio { display: flex; }
 .p1 .pnum { background: var(--p1); }
 .p2 .pnum { background: var(--p2); }
 .player { position: relative; }
-.player[aria-checked="false"] { opacity: .6; }
+.player[aria-checked="false"] { opacity: .75; }
 .player[aria-checked="true"]::after {                     /* same ✓ badge the tiles use: "this one is on" without colour */
   content: '✓'; position: absolute; right: 12px; top: 50%; translate: 0 -50%; width: 30px; height: 30px; border-radius: 50%;
   display: grid; place-items: center; background: var(--gold); color: var(--dark-on-pink); font-size: 18px; font-weight: 700;
@@ -207,7 +207,7 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 .tile { border: 2px solid rgba(255, 255, 255, 0.16); }
 .tile.on { box-shadow: inset 0 0 0 5px var(--gold); background: #33304A; }
 .tile.on .tile-check { display: grid; }
-.tile.focus { box-shadow: inset 0 0 0 4px var(--gold); }
+.tray .tile:focus-visible { outline-offset: -6px; }     /* the tray clips anything outside it */
 .tile.pop { animation: tilePop .35s ease-out; }
 @keyframes tilePop { 40% { scale: 1.1; } }
 

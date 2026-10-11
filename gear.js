@@ -34,7 +34,7 @@ export const MASKS = [
 // Hand powers: show an open hand, make a fist, or flick — the camera tracks both hands (hands.js).
 export const HAND_POWERS = [
   { id: 'blast', name: 'Energy Blast', trigger: 'hand', hint: '✊ → 🖐️', line: 'p_blast', group: 'hands' },
-  { id: 'fireball', name: 'Fireball', trigger: 'hand', hint: '🖐️ 👋', line: 'p_fireball', group: 'hands' },
+  { id: 'fireball', name: 'Fireball', trigger: 'hand', hint: '🖐️ 💨 → 🔥', line: 'p_fireball', group: 'hands' },
   { id: 'zap', name: 'Zap Hands', trigger: 'hand', hint: '🖐️ → ⚡', line: 'p_zap', group: 'hands' },
   { id: 'frosthand', name: 'Ice Hands', trigger: 'hand', hint: '🖐️ → ❄️', line: 'p_frosthand', group: 'hands' },
   { id: 'magic', name: 'Magic Finger', trigger: 'hand', hint: '☝️ → ✨', line: 'p_magic', group: 'hands' },

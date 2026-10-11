@@ -220,6 +220,7 @@ export function drawHandPreview(x, id) {
     glowDot(x, 50, 40, 30, 'rgba(120,220,255,.95)', 'rgba(40,120,255,0)');
     x.strokeStyle = '#BFF0FF'; x.lineWidth = 2.5;
     for (let i = 0; i < 6; i++) { const a = (i / 6) * TWO_PI + 0.3; zig(x, { x: 50 + Math.cos(a) * 12, y: 40 + Math.sin(a) * 12 }, { x: 50 + Math.cos(a) * 30, y: 40 + Math.sin(a) * 30 }, 4, 3); }
+    cartoonHand(x, 16, 84, 14, 0);                      // the fist that charges it, in the corner
   } else if (id === 'fireball') {
     cartoonHand(x, 34, 74, 34, 1);
     glowDot(x, 68, 32, 26, 'rgba(255,200,60,.95)', 'rgba(255,60,0,0)');

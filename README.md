@@ -45,4 +45,4 @@ python scripts/serve.py 5228
 - `node scripts/voice-gen.mjs` records any missing narrator lines (ElevenLabs, Tyler `GyIXYY876myKNtA1j8NI`).
 
 ## Release checklist
-Bump `CACHE` in `sw.js` (`hero-vN`, now v5) on every publish, or installed tablets keep the old files. New files must be added to `SHELL` in `sw.js` too.
+Bump `CACHE` in `sw.js` (`hero-vN`, now v6) on every publish, or installed tablets keep the old files. New files must be added to `SHELL` in `sw.js` too.

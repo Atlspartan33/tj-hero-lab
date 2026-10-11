@@ -425,6 +425,9 @@ function frame() {
     if (gfx) S.gpuUntil = now + 2500;
   }
   S.handsShown = handsShown;
+  S.handsFor = [0, 1].map((p) => hands.hands.some((h) => h.player === p && handOf(p)));
+  S.fireLv = fireLv.slice();
+  S.heroesHere = [...new Set(faces.map((f) => f.player))].sort();
   for (const p of [0, 1]) if (now - (S.firedAt[p] || 0) < 450) fireLv[p] = 1;
   updateBalls(ctx);
   drawTrails(engine, dt, now);
@@ -462,7 +465,10 @@ function frame() {
     gfx.resize(W, H);
     if (segOK && seg.alpha && seg.gpuStamp !== seg.stamp) { gfx.setMask(seg.alpha, seg.w, seg.h); seg.gpuStamp = seg.stamp; }
     gpuDrawn = gfx.frame(dt, t, faces[0]?.fw || H * 0.3);
-  } else if (gfx && gfx.alive) { gfx.clear(); }
+  } else if (gfx) {
+    gfx.emitters.length = 0; gfx.fields.length = 0;      // nothing drawn this frame: don't let queued work pile up
+    if (gfx.alive) gfx.clear();
+  }
   const light = bg ? BG_LIGHT[bg] : null;
   engine.render({
     t, dt, mirror: m, look, useBg: !!(bg && segOK), useMask: segOK,
@@ -474,7 +480,7 @@ function frame() {
 
   for (const [kind, level] of Object.entries(lv)) sfx.loop(kind, level);
   if (Math.max(lv.fire, lv.ice, lv.bubble, lv.shout, lv.laser) > 0.5 && !boost) S.powerUsedAt = now;
-  powerHints(lv);
+  powerHints();
   hints(now, src);
 }
 
@@ -489,7 +495,7 @@ function assignPlayers(faces, W, m, now) {
     S.oneSince = 0;
   } else {
     S.twoSince = 0;
-    for (const f of faces) if (f.player === undefined) f.player = 0;
+    for (const f of faces) if (f.player === undefined) f.player = S.player;   // a returning hero gets the outfit the drawer is editing
     // one hero left: the drawer follows the hero who's still here, and the 1/2 switch tucks away after a moment
     if (S.twoSeen && faces.length === 1) {
       if (faces[0].player !== S.player) setPlayer(faces[0].player, true);
@@ -499,7 +505,7 @@ function assignPlayers(faces, W, m, now) {
   }
 }
 function nearestPlayer(h, faces) {
-  let best = 0, bd = Infinity;
+  let best = S.player, bd = Infinity;
   for (const f of faces) { const d = Math.hypot(f.eyes.x - h.palm.x, f.eyes.y - h.palm.y) / f.fw; if (d < bd) { bd = d; best = f.player; } }
   return best;
 }
@@ -597,17 +603,28 @@ function setPowerHint(text) {
   el.hidden = !text;
 }
 // Show "😮 → 🔥" for each selected power that has a face trigger, until he's using it.
-function powerHints(lv) {
+// Show "😮 → 🔥" for each power that needs a move, for every hero on camera (numbered when two are playing),
+// until that hero is doing it. Hand moves that take learning (fist-then-open, throw) stay up until they've worked.
+const LEARN = ['blast', 'fireball'];
+function powerHints() {
   const now = performance.now();
-  const active = POWERS.filter((p) => p.trigger && isOn(p.id));
-  const firing = Math.max(lv.fire, lv.ice, lv.bubble, lv.shout, lv.laser) > 0.3;
-  const hand = HAND_POWERS.find((p) => isOn(p.id));
-  const needHand = hand && !S.handsShown;
-  if (hand && S.handsShown) S.noHandSince = 0;
-  else if (needHand && !S.noHandSince) S.noHandSince = now;
-  if (needHand && now - S.noHandSince > 4000 && now - S.saidHandAt > 15000 && !S.busy) { S.saidHandAt = now; voice.say('show_hand'); }
-  const parts = [...(firing ? [] : active.map((p) => p.hint)), ...(needHand ? [hand.hint] : [])];
-  setPowerHint(parts.length && tracker.faces.length ? parts.join('   ') : '');
+  const heroes = S.heroesHere?.length ? S.heroesHere : [S.player];
+  const two = heroes.length > 1;
+  let noHand = false;
+  const groups = heroes.map((p) => {
+    const firing = (S.fireLv?.[p] || 0) > 0.3;
+    const face = POWERS.filter((it) => it.trigger && isOn(it.id, p));
+    const hand = HAND_POWERS.find((it) => isOn(it.id, p));
+    const shown = !!S.handsFor?.[p];
+    if (hand && !shown) noHand = true;
+    const needHand = hand && (!shown || (LEARN.includes(hand.id) && now - (S.firedAt[p] || 0) > 6000));
+    const parts = [...(firing ? [] : face.map((it) => it.hint)), ...(needHand ? [hand.hint] : [])];
+    return parts.length ? (two ? `${p ? '2️⃣' : '1️⃣'} ` : '') + parts.join('   ') : '';
+  }).filter(Boolean);
+  if (!noHand) S.noHandSince = 0;
+  else if (!S.noHandSince) S.noHandSince = now;
+  if (noHand && now - S.noHandSince > 4000 && now - S.saidHandAt > 15000 && !S.busy) { S.saidHandAt = now; voice.say('show_hand'); }
+  setPowerHint(groups.length && tracker.faces.length ? groups.join('     ') : '');
 }
 const lumaCanvas = document.createElement('canvas'); lumaCanvas.width = lumaCanvas.height = 24;
 const lumaCtx = lumaCanvas.getContext('2d', { willReadFrequently: true });
@@ -841,9 +858,12 @@ function scheduleTapHint(id) {
   }, 7000);
 }
 function clearAll() {
-  const any = ALL.some((it) => isOn(it.id));
-  for (const it of ALL) S.sel[it.id].on = false;          // this hero's things (+ background and look)
-  G.balls = []; G.trails.clear();
+  // this hero's things; the shared world and Look too, unless another hero is playing
+  const mine = ALL.filter((it) => !(S.twoSeen && SHARED(it)));
+  const any = mine.some((it) => isOn(it.id));
+  for (const it of mine) S.sel[it.id].on = false;
+  G.balls = G.balls.filter((b) => b.player !== S.player);
+  for (const h of hands.hands) if (h.player === S.player) G.trails.delete(h.id);
   renderTray();
   sfx.swoosh();
   if (any) { voice.say('off'); toast('All off! 🧺'); }
@@ -855,7 +875,10 @@ $('stage').addEventListener('pointerdown', (e) => {
   if (isOn('shield') && performance.now() - S.shieldAt > 700) S.shieldAt = performance.now();   // cooldown: mashing can't strobe it
   const now = performance.now();
   const handPw = [0, 1].some((p) => handOf(p));
-  if (handPw) for (const h of hands.hands) if (handOf(h.player)) { h.blastAt = now; h.blastPower = 1; h.throwAt = now; h.throwVel = { x: 0, y: -h.size * 16 }; }
+  if (handPw && now - (S.tapBlastAt || 0) > 600) {            // cooldown: mashing can't stack flashes
+    S.tapBlastAt = now;
+    for (const h of hands.hands) if (handOf(h.player)) { h.blastAt = now; h.blastPower = 1; h.throwAt = now; h.throwVel = { x: 0, y: -h.size * 16 }; }
+  }
   if (onAnyHero('storm')) S.boostUntil = now + 1600;
   if (!handPw && !POWERS.some((p) => (p.trigger || p.id === 'shield' || p.id === 'lightning' || p.id === 'storm') && isOn(p.id))) {
     // no power to fire yet: answer the tap anyway and point at the Powers drawer
