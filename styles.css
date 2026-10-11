@@ -135,6 +135,32 @@ body[data-screen="studio"] #studio { display: flex; }
 .err-title { margin: 0; font-size: 34px; font-weight: 700; color: var(--pink); }
 .err-text { margin: 0 0 8px; max-width: 480px; line-height: 1.35; color: var(--ink); }
 
+/* ───────────── hero 1 / hero 2 (shows up once two heroes are on camera) ───────────── */
+:root { --p1: #25B5FF; --p2: #FF5FA8; }
+.players { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.player {
+  display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 60px; border-radius: 999px;
+  font-size: 30px; background: var(--panel-2); box-shadow: inset 0 0 0 3px rgba(255,255,255,.18);
+  transition: transform .12s ease;
+}
+.player:active { transform: scale(.94); }
+.pnum { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; font-family: var(--display); font-size: 28px; color: var(--dark-on-pink); }
+.p1 .pnum { background: var(--p1); }
+.p2 .pnum { background: var(--p2); }
+.player { position: relative; }
+.player[aria-checked="false"] { opacity: .6; }
+.player[aria-checked="true"]::after {                     /* same ✓ badge the tiles use: "this one is on" without colour */
+  content: '✓'; position: absolute; right: 12px; top: 50%; translate: 0 -50%; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--gold); color: var(--dark-on-pink); font-size: 18px; font-weight: 700;
+}
+.player.pop { animation: tilePop .35s ease-out; }
+.p1[aria-checked="true"] { background: #173A55; box-shadow: inset 0 0 0 5px var(--p1); }
+.p2[aria-checked="true"] { background: #55193A; box-shadow: inset 0 0 0 5px var(--p2); }
+body.two[data-player="0"] .tile.on { box-shadow: inset 0 0 0 5px var(--p1); }
+body.two[data-player="1"] .tile.on { box-shadow: inset 0 0 0 5px var(--p2); }
+body.two[data-player="0"] .tile-check { background: var(--p1); }
+body.two[data-player="1"] .tile-check { background: var(--p2); }
+
 /* ───────────── dock ───────────── */
 .dock {
   flex: none; display: flex; flex-direction: column; gap: 14px;
@@ -264,6 +290,8 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
   .shutter { width: 80px; height: 80px; }
   .shutter-core { width: 62px; height: 62px; font-size: 28px; }
   .chip { min-height: 48px; font-size: 17px; padding: 0 14px; }
+  .player { min-height: 48px; font-size: 22px; }
+  .pnum { width: 32px; height: 32px; font-size: 22px; }
   .ask { margin: 8px 0 12px; }
   .big:not(.go) { min-height: 60px; font-size: 21px; }
   .text-btn { margin-top: 10px; }
@@ -272,6 +300,8 @@ body.overlay-up .dock .tray, body.overlay-up .dock .tabs { pointer-events: none;
 /* ───────────── phone ───────────── */
 @media (max-width: 540px) {
   .dock { gap: 10px; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
+  .player { min-height: 52px; font-size: 24px; }
+  .pnum { width: 34px; height: 34px; font-size: 24px; }
   .brand { display: none; }
   .tab { font-size: 14px; min-height: 64px; gap: 2px; padding: 0 3px; }
   .tile-name { font-size: 12px; white-space: nowrap; }

@@ -4,6 +4,15 @@
 // Drawn in code (not sprites) on purpose: every piece is fitted to the real face — eyeholes to his eyes,
 // helmets to his forehead and chin — which a flat picture can't do.
 
+// Face paint wraps onto the face mesh (facepaint.js) and can be worn under any mask or helmet.
+export const PAINTS = [
+  { id: 'tiger', name: 'Tiger', line: 'f_tiger', group: 'paint' },
+  { id: 'chrome', name: 'Chrome', line: 'f_chrome', group: 'paint' },
+  { id: 'galaxy', name: 'Galaxy', line: 'f_galaxy', group: 'paint' },
+  { id: 'lava', name: 'Lava', line: 'f_lava', group: 'paint' },
+  { id: 'circuit', name: 'Circuits', line: 'f_circuit', group: 'paint' },
+  { id: 'frost', name: 'Frost', line: 'f_frost', group: 'paint' },
+];
 export const MASKS = [
   { id: 'eye', name: 'Hero Mask', line: 'm_eye' },
   { id: 'robot', name: 'Robot', line: 'm_robot', is3d: true },
@@ -22,6 +31,14 @@ export const MASKS = [
   { id: 'diver', name: 'Deep Diver', line: 'm_diver', is3d: true },
   { id: 'fireman', name: 'Fire Chief', line: 'm_fireman', is3d: true },
 ];
+// Hand powers: show an open hand, make a fist, or flick — the camera tracks both hands (hands.js).
+export const HAND_POWERS = [
+  { id: 'blast', name: 'Energy Blast', trigger: 'hand', hint: '✊ → 🖐️', line: 'p_blast', group: 'hands' },
+  { id: 'fireball', name: 'Fireball', trigger: 'hand', hint: '🖐️ 👋', line: 'p_fireball', group: 'hands' },
+  { id: 'zap', name: 'Zap Hands', trigger: 'hand', hint: '🖐️ → ⚡', line: 'p_zap', group: 'hands' },
+  { id: 'frosthand', name: 'Ice Hands', trigger: 'hand', hint: '🖐️ → ❄️', line: 'p_frosthand', group: 'hands' },
+  { id: 'magic', name: 'Magic Finger', trigger: 'hand', hint: '☝️ → ✨', line: 'p_magic', group: 'hands' },
+];
 export const POWERS = [
   { id: 'fire', name: 'Fire Breath', trigger: 'mouth', hint: '😮 → 🔥', line: 'p_fire', group: 'breath' },
   { id: 'ice', name: 'Ice Breath', trigger: 'mouth', hint: '😮 → ❄️', line: 'p_ice', group: 'breath' },
@@ -35,6 +52,7 @@ export const POWERS = [
   { id: 'shield', name: 'Shield', trigger: null, line: 'p_shield' },
   { id: 'speed', name: 'Super Speed', trigger: null, line: 'p_speed' },
   { id: 'invisible', name: 'Invisible', trigger: null, line: 'p_invisible' },
+  { id: 'storm', name: 'Star Storm', trigger: null, line: 'p_storm', gpu: true },
 ];
 export const GEAR = [
   { id: 'cape', name: 'Cape', line: 'g_cape', behind: true },
@@ -67,8 +85,8 @@ export const BG_LIGHT = {
   underwater: { rim: [0.2, 0.9, 1.2], tint: [0.88, 1.0, 1.08] }, snow: { rim: [1.0, 1.1, 1.3], tint: [0.98, 1.0, 1.06] },
   track: { rim: [1.2, 1.0, 0.5], tint: [1.04, 1.0, 0.94] }, hq: { rim: [0.2, 1.1, 1.3], tint: [0.94, 1.02, 1.06] },
 };
-export const DRAWERS = { masks: MASKS, powers: POWERS, gear: GEAR, looks: LOOKS };
-export const ALL = [...MASKS, ...POWERS, ...GEAR, ...LOOKS];
+export const DRAWERS = { masks: [...PAINTS, ...MASKS], powers: [...HAND_POWERS, ...POWERS], gear: GEAR, looks: LOOKS };
+export const ALL = [...PAINTS, ...MASKS, ...HAND_POWERS, ...POWERS, ...GEAR, ...LOOKS];
 
 // The front camera is drawn mirrored; text has to be un-mirrored so "TJ" and "POW!" read the right way.
 let MIRROR = false;

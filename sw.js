@@ -1,5 +1,5 @@
 // sw.js — cache-first so the studio opens with no Wi-Fi after the first visit.
-const CACHE = 'hero-v4';   // bump on every release so tablets pick up new files
+const CACHE = 'hero-v5';   // bump on every release so tablets pick up new files
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'face.js', 'gear.js', 'gear3.js', 'engine.js', 'helmets3d.js', 'fx3d.js', 'sfx.js', 'voice.js', 'lines.js', 'gallery.js', 'preview-face.json',
   'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
@@ -8,6 +8,10 @@ const SHELL = [
   'vendor/three/addons/postprocessing/Pass.js', 'vendor/three/addons/postprocessing/MaskPass.js', 'vendor/three/addons/postprocessing/ShaderPass.js',
   'vendor/three/addons/shaders/CopyShader.js', 'vendor/three/addons/shaders/LuminosityHighPassShader.js', 'vendor/three/addons/environments/RoomEnvironment.js', 'vendor/face_landmarker.task', 'vendor/selfie_segmenter.tflite',
   'vendor/wasm/vision_wasm_internal.js', 'vendor/wasm/vision_wasm_internal.wasm',
+  // v5: face paint, hand powers, WebGPU particles, two heroes, sculpted helmets
+  'play.js', 'hands.js', 'gpufx.js', 'facepaint.js', 'facegeo.json', 'tracker-worker.js', 'vendor/gesture_recognizer.task',
+  'vendor/three/addons/loaders/GLTFLoader.js', 'vendor/three/addons/utils/BufferGeometryUtils.js', 'vendor/three/addons/utils/SkeletonUtils.js',
+  ...['robot', 'thunder', 'astro', 'knight', 'race', 'viking', 'samurai', 'diver', 'crown', 'mech', 'fireman', 'dragon'].map((id) => `models/helmets/${id}.glb`),
 ];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then(async (c) => {

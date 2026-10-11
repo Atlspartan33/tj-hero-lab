@@ -56,6 +56,10 @@ export const tick = (n) => tone(n === 1 ? 990 : 660, 0.14, { gain: 0.16, type: '
 export const shutter = () => { noise(0.08, { freq: 3000, q: 0.7, gain: 0.5 }); setTimeout(() => noise(0.06, { freq: 1800, q: 0.7, gain: 0.35 }), 70); buzz(30); };
 export const swoosh = () => { noise(0.35, { freq: 400, sweepTo: 4000, q: 1.2, gain: 0.35 }); buzz(15); };
 export const zap = () => { tone(1400, 0.25, { to: 300, gain: 0.12, type: 'sawtooth' }); buzz(20); };
+// Hand-power hits: a soft low thump + air, never a harsh bang.
+export const boom = () => { tone(140, 0.45, { to: 45, gain: 0.32 }); noise(0.4, { freq: 900, sweepTo: 180, q: 0.8, gain: 0.32 }); buzz(40); };
+export const whoosh = () => { noise(0.28, { freq: 600, sweepTo: 2600, q: 1.4, gain: 0.3 }); buzz(12); };
+export const charge = () => tone(220, 0.5, { to: 880, gain: 0.08, type: 'triangle' });
 export const tada = () => [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.25, { at: i * 0.07, gain: 0.12, type: 'triangle' }));
 
 // Continuous power sounds: level 0..1, faded smoothly so they never click on or off.

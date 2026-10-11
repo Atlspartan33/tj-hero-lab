@@ -481,7 +481,94 @@ B.dragon = () => {
 };
 
 export const HELMETS = Object.keys(B);
-export function buildHelmet(id) { mats(); return B[id] ? B[id]() : null; }
+export function buildHelmet(id) {
+  mats();
+  const glb = MODELS.get(id);
+  if (glb) { try { return fromModel(glb); } catch (e) { console.warn('helmet model', id, e); } }
+  return B[id] ? B[id]() : null;
+}
+
+// ───────────────────────────────────────────── sculpted helmets (Blender → models/helmets/<id>.glb)
+// Modeled in the same head space as the builders above. Names drive the look:
+//   objects  glow_* (unlit, bloom) · blink_* · pulse_* · sway_* (pivot rocks) · spin_* · glass_* (clear, fresnel rim)
+//   materials paint_* metal_* chrome_* gold_* brass_* lacquer_* leather_* rubber_* fabric_* ivory_* pearl_* gem_* glass_* glow_*
+// If a file is missing or fails, the code-built helmet above is used instead.
+const MODELS = new Map();
+let modelsPromise = null;
+// envMapIntensity per material family: the room reflection washes out flat metal and saturated paint.
+const ENV = { paint: 0.55, metal: 0.8, chrome: 1.0, gold: 0.9, brass: 0.85, lacquer: 0.6, leather: 0.3, rubber: 0.25, fabric: 0.2, ivory: 0.45, pearl: 0.7, gem: 1.2 };
+export function loadHelmetModels(ids = HELMETS) {
+  return (modelsPromise ??= (async () => {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+    const loader = new GLTFLoader();
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const gltf = await loader.loadAsync(`models/helmets/${id}.glb`);
+        prepModel(gltf.scene);
+        MODELS.set(id, gltf.scene);
+      } catch { /* not modeled yet: keep the code-built one */ }
+    }));
+    return MODELS.size;
+  })());
+}
+export const hasModel = (id) => MODELS.has(id);
+const family = (name = '') => (name.toLowerCase().match(/^([a-z]+)_/) || [])[1] || '';
+function prepModel(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const name = o.name.toLowerCase();
+    const fam = family(o.material?.name);
+    let m = o.material;
+    if (/^(glow|blink|pulse)_/.test(name) || fam === 'glow') {
+      const c = (m.emissive && m.emissive.getHex() ? m.emissive : m.color).clone();
+      const k = Math.max(1, m.emissiveIntensity || 1);
+      m = new THREE.MeshBasicMaterial({ color: c.multiplyScalar(Math.min(1.4, k)), toneMapped: false, map: m.emissiveMap || m.map || null });
+      o.layers.enable(BLOOM);
+    } else if (/^glass_/.test(name) || fam === 'glass') {
+      const tintCol = m.color.clone();
+      const hi = Math.max(tintCol.r, tintCol.g, tintCol.b), lo = Math.min(tintCol.r, tintCol.g, tintCol.b);
+      const clear = hi - lo < 0.3 && hi > 0.6;                         // see-through glass (fishbowl, porthole) vs a tinted visor
+      // clear glass: almost no body, a faint room reflection, and the fresnel rim draws its edge
+      const op = clear ? 0.04 : Math.max(0.12, Math.min(0.32, m.transparent ? m.opacity : 0.3));
+      m = new THREE.MeshPhysicalMaterial({ color: tintCol, transparent: true, opacity: op, roughness: 0.05, metalness: 0, clearcoat: clear ? 0 : 1, envMapIntensity: clear ? 0.12 : 0.7, side: clear ? THREE.FrontSide : THREE.DoubleSide, depthWrite: false });
+      o.renderOrder = 5;
+      const rim = new THREE.Mesh(o.geometry, fresnelRim());
+      rim.renderOrder = 6; o.add(rim);
+    } else if (m.isMeshStandardMaterial) {
+      if (ENV[fam] !== undefined) m.envMapIntensity = ENV[fam];
+      if (fam === 'paint' || fam === 'lacquer') { if (!m.isMeshPhysicalMaterial) { const p = new THREE.MeshPhysicalMaterial(); THREE.MeshStandardMaterial.prototype.copy.call(p, m); m = p; } m.clearcoat = Math.max(m.clearcoat || 0, 0.8); m.clearcoatRoughness = 0.12; }
+      if (fam === 'pearl' && m.isMeshPhysicalMaterial) { m.sheen = 1; m.sheenColor = new THREE.Color(0xbfe0ff); }
+    }
+    o.material = m;
+  });
+}
+function fresnelRim() {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix*normal); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: 'varying vec3 vN; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), vec3(0.0,0.0,1.0))), 4.0); gl_FragColor = vec4(vec3(0.75,0.9,1.0)*f*0.6, f); }',
+  });
+}
+// A per-wearer copy (materials are cloned for anything animated so two heroes don't blink in sync).
+function fromModel(src) {
+  const g = src.clone(true);
+  const blink = [], pulse = [], sway = [], spin = [];
+  g.traverse((o) => {
+    const n = o.name.toLowerCase();
+    if (o.isMesh && /^(blink|pulse)_/.test(n)) { o.material = o.material.clone(); o.userData.base = o.material.color.clone(); (n.startsWith('blink') ? blink : pulse).push(o); }
+    if (/^sway_/.test(n)) sway.push({ o, rx: o.rotation.x, rz: o.rotation.z, ph: Math.random() * 6 });
+    if (/^spin_/.test(n)) spin.push(o);
+  });
+  return {
+    group: g,
+    update(t) {
+      blink.forEach((o, i) => { o.visible = Math.floor(t * 2 + i * 0.5) % 2 === 0; });
+      pulse.forEach((o, i) => { o.material.color.copy(o.userData.base).multiplyScalar(0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 5 + i * 2))); });
+      sway.forEach((s, i) => { s.o.rotation.x = s.rx + Math.sin(t * 1.7 + s.ph) * 0.05; s.o.rotation.z = s.rz + Math.sin(t * 2.5 + s.ph + i) * 0.08; });
+      spin.forEach((o) => { o.rotation.y = t * 1.5; });
+    },
+  };
+}
 
 // ───────────────────────────────────────────── robot buddy (orbits the head)
 export function buildRoboBuddy() {

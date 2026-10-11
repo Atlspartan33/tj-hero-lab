@@ -12,12 +12,15 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { BLOOM, buildHelmet, buildOccluder, headMatrix, buildRoboBuddy, HEAD_CENTER } from './helmets3d.js';
 import { Particles, Ribbons, boltPath, buildShield, hsl } from './fx3d.js';
+import { buildPaintMesh, updatePaintMesh } from './facepaint.js';
+import { OUT_SCALE } from './gpufx.js';
 
 const QUAD_VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy * 2.0, 0.0, 1.0); }';
 
 const COMPOSITE_FRAG = `
 uniform sampler2D tVideo, tMask, tBg, tBehind, tFront, tG0, tG1, tG2, tG3;
-uniform float uUseBg, uUseMask, uUseBehind, uUseFront, uAura, uInvis, uSpeed, uTime, uRim, uAuraTaps;
+uniform float uUseBg, uUseMask, uUseBehind, uUseFront, uAura, uInvis, uSpeed, uTime, uRim, uAuraTaps, uSplit;
+uniform vec3 uFxA, uFxB;                 // per-hero (aura, invisible, speed): A = the person left of uSplit, B = right
 uniform vec3 uRimColor, uAuraA, uAuraB, uBgTint;
 uniform vec4 uRipple[4];
 uniform vec4 uHeat;
@@ -42,11 +45,12 @@ void main() {
     d += (vec2(noise(uv * 38.0 + vec2(0.0, uTime * 4.0)), noise(uv * 38.0 + vec2(7.3, uTime * 4.0))) - 0.5) * 0.016 * fall * uHeat.w;
   }
   vec2 uvd = uv + d;
+  vec3 fx = mix(uFxA, uFxB, step(uSplit, uvd.x));
   vec3 video = texture2D(tVideo, uvd).rgb;
   vec3 base = uUseBg > 0.5 ? texture2D(tBg, uvd).rgb : video;
   if (uUseMask > 0.5) {
     float mm = smoothstep(0.35, 0.75, mk(uvd));
-    if (uAura > 0.0) {
+    if (uAura > 0.0 && fx.x > 0.0) {
       float acc = 0.0, n = 0.0;
       for (int i = 0; i < 16; i++) {
         if (float(i) >= uAuraTaps) break;
@@ -57,25 +61,25 @@ void main() {
       acc /= max(n, 1.0);
       float glow = clamp(acc * 1.5 - mm, 0.0, 1.0);
       float flick = 0.55 + 0.45 * noise(uvd * vec2(14.0, 6.0) + vec2(0.0, -uTime * 2.5));
-      base += mix(uAuraB, uAuraA, uv.y) * glow * flick * 2.6 * uAura;
+      base += mix(uAuraB, uAuraA, uv.y) * glow * flick * 2.6 * fx.x;
     }
-    if (uSpeed > 0.0) {
+    if (uSpeed > 0.0 && fx.z > 0.0) {
       vec4 g;
-      g = texture2D(tG3, uvd); base = mix(base, g.rgb * vec3(0.35, 0.55, 1.7), g.a * 0.3 * uSpeed);
-      g = texture2D(tG2, uvd); base = mix(base, g.rgb * vec3(0.45, 0.9, 1.6), g.a * 0.38 * uSpeed);
-      g = texture2D(tG1, uvd); base = mix(base, g.rgb * vec3(1.5, 1.2, 0.5), g.a * 0.46 * uSpeed);
-      g = texture2D(tG0, uvd); base = mix(base, g.rgb * vec3(1.6, 0.6, 0.5), g.a * 0.55 * uSpeed);
+      g = texture2D(tG3, uvd); base = mix(base, g.rgb * vec3(0.35, 0.55, 1.7), g.a * 0.3 * fx.z);
+      g = texture2D(tG2, uvd); base = mix(base, g.rgb * vec3(0.45, 0.9, 1.6), g.a * 0.38 * fx.z);
+      g = texture2D(tG1, uvd); base = mix(base, g.rgb * vec3(1.5, 1.2, 0.5), g.a * 0.46 * fx.z);
+      g = texture2D(tG0, uvd); base = mix(base, g.rgb * vec3(1.6, 0.6, 0.5), g.a * 0.55 * fx.z);
     }
     if (uUseBehind > 0.5) { vec4 b = texture2D(tBehind, uv); base = mix(base, b.rgb, b.a); }
     vec3 person = video;
-    if (uInvis > 0.0) {
+    if (uInvis > 0.0 && fx.y > 0.0) {
       float e = 0.004;
       vec2 grad = vec2(mk(uvd + vec2(e, 0.0)) - mk(uvd - vec2(e, 0.0)), mk(uvd + vec2(0.0, e)) - mk(uvd - vec2(0.0, e)));
       vec2 off = grad * 0.06 + (vec2(noise(uvd * 16.0 + uTime), noise(uvd * 16.0 - uTime)) - 0.5) * 0.025;
       vec3 seen = uUseBg > 0.5 ? texture2D(tBg, uvd + off).rgb : texture2D(tVideo, uvd + off * 3.0).rgb * vec3(0.8, 0.95, 1.15);
       float edge = clamp(length(grad) * 10.0, 0.0, 1.0);
       float shimmer = 0.5 + 0.5 * sin(uvd.y * 120.0 + uTime * 6.0);
-      person = mix(person, seen + vec3(0.55, 0.85, 1.0) * edge * (0.6 + 0.4 * shimmer), uInvis * 0.9);
+      person = mix(person, seen + vec3(0.55, 0.85, 1.0) * edge * (0.6 + 0.4 * shimmer), fx.y * 0.9);
     }
     if (uRim > 0.0) {
       float s = 0.0045;
@@ -97,7 +101,7 @@ void main(){ float m = smoothstep(0.35, 0.75, texture2D(tMask, vec2(vUv.x, 1.0 -
 const FINAL_FRAG = `
 uniform sampler2D tScene, tBloom;
 uniform float uBloom, uMirror, uLook, uTime, uFrost, uLookMix;
-uniform vec2 uRes;
+uniform vec2 uRes, uShake;
 varying vec2 vUv;
 vec3 toSRGB(vec3 c) { c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
 vec3 at(vec2 uv) { return toSRGB(texture2D(tScene, uv).rgb + texture2D(tBloom, uv).rgb * uBloom); }
@@ -126,7 +130,7 @@ vec3 palette16(vec3 c) {
   return best;
 }
 void main() {
-  vec2 uv = vUv; if (uMirror > 0.5) uv.x = 1.0 - uv.x;
+  vec2 uv = vUv + uShake; if (uMirror > 0.5) uv.x = 1.0 - uv.x;
   vec2 px = 1.0 / uRes;
   int look = int(uLook + 0.5);
   vec3 c;
@@ -227,7 +231,7 @@ export class Engine {
         tVideo: { value: null }, tMask: { value: this.maskTex }, tBg: { value: this.layers.bg.tex }, tBehind: { value: this.layers.behind.tex }, tFront: { value: this.layers.front.tex },
         tG0: { value: this.ghosts[0].texture }, tG1: { value: this.ghosts[1].texture }, tG2: { value: this.ghosts[2].texture }, tG3: { value: this.ghosts[3].texture },
         uUseBg: { value: 0 }, uUseMask: { value: 0 }, uUseBehind: { value: 0 }, uUseFront: { value: 0 }, uAura: { value: 0 }, uInvis: { value: 0 }, uSpeed: { value: 0 },
-        uTime: { value: 0 }, uRim: { value: 0 }, uAuraTaps: { value: 12 },
+        uTime: { value: 0 }, uRim: { value: 0 }, uAuraTaps: { value: 12 }, uSplit: { value: 2 }, uFxA: { value: new THREE.Vector3() }, uFxB: { value: new THREE.Vector3() },
         uRimColor: { value: new THREE.Color() }, uAuraA: { value: new THREE.Color(1.0, 0.85, 0.2) }, uAuraB: { value: new THREE.Color(0.1, 0.6, 1.0) }, uBgTint: { value: new THREE.Color(1, 1, 1) },
         uRipple: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
         uHeat: { value: new THREE.Vector4() }, uAspect: { value: new THREE.Vector2(1, 1) },
@@ -246,7 +250,7 @@ export class Engine {
 
     this.final = new THREE.ShaderMaterial({
       vertexShader: QUAD_VERT, fragmentShader: FINAL_FRAG, depthTest: false, depthWrite: false,
-      uniforms: { tScene: { value: null }, tBloom: { value: null }, uBloom: { value: 0.6 }, uMirror: { value: 0 }, uLook: { value: 0 }, uLookMix: { value: 1 }, uTime: { value: 0 }, uFrost: { value: 0 }, uRes: { value: new THREE.Vector2(4, 4) } },
+      uniforms: { tScene: { value: null }, tBloom: { value: null }, uBloom: { value: 0.6 }, uMirror: { value: 0 }, uLook: { value: 0 }, uLookMix: { value: 1 }, uTime: { value: 0 }, uFrost: { value: 0 }, uRes: { value: new THREE.Vector2(4, 4) }, uShake: { value: new THREE.Vector2() } },
     });
     this.finalScene = new THREE.Scene(); this.finalScene.add(quad(this.final));
     this.black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); this.black.needsUpdate = true;
@@ -254,8 +258,8 @@ export class Engine {
     // effects
     this.fx = {
       fire: new Particles(700), smoke: new Particles(160, { additive: false, glow: false }), ember: new Particles(220, { shape: 1 }),
-      ice: new Particles(600, { additive: false }), flake: new Particles(160, { shape: 1 }), rainbow: new Particles(600, { additive: false }), spark: new Particles(400, { shape: 1 }),
-      flare: new Particles(64),
+      ice: new Particles(600, { additive: false }), flake: new Particles(160, { shape: 1 }), rainbow: new Particles(600, { additive: false }), spark: new Particles(900, { shape: 1 }),
+      flare: new Particles(160),
     };
     for (const p of Object.values(this.fx)) { p.mat.uniforms.uMax.value = this.maxPoint; this.scene.add(p.points); }
     this.smokeFirst();
@@ -281,6 +285,7 @@ export class Engine {
     this.cam.left = 0; this.cam.right = W; this.cam.top = H; this.cam.bottom = 0; this.cam.updateProjectionMatrix();
     this.bgQuad.scale.set(W, H, 1); this.bgQuad.position.set(W / 2, H / 2, -5e4);
     this.topQuad.scale.set(W, H, 1); this.topQuad.position.set(W / 2, H / 2, 5e4);
+    if (this.gpuQuad) { this.gpuQuad.scale.set(W, H, 1); this.gpuQuad.position.set(W / 2, H / 2, 4e4); }
     this.main?.dispose();
     this.main = new THREE.WebGLRenderTarget(W, H, { type: this.rtType, samples: this.quality >= 2 && this.floatRT ? 4 : 0 });
     for (const g of this.ghosts) g.setSize(Math.round(W / 2), Math.round(H / 2));
@@ -379,11 +384,90 @@ export class Engine {
     if (!on && h.shield) { h.anchor.remove(h.shield); h.shield.geometry.dispose(); h.shield.material.dispose(); h.shield = null; }
     if (h.shield) { h.shield.material.uniforms.uTime.value = t; h.shield.material.uniforms.uPulse.value = pulse; }
   }
+  // Face paint: a mesh on the live landmarks (facepaint.js). id = null takes it off.
+  setPaint(f, id, k, t, skin) {
+    const h = this.head(f);
+    if (id && !h.paint) { h.paint = buildPaintMesh(this.videoTex); this.scene.add(h.paint.group); }
+    if (!id && h.paint) { this.scene.remove(h.paint.group); h.paint.mesh.geometry.dispose(); h.paint.mesh.material.dispose(); h.paint.glowMesh.material.dispose(); h.paint = null; }
+    if (h.paint) updatePaintMesh(h.paint, f, id, k, t, this.W, this.H, skin, this.videoTex);
+  }
+  // The WebGPU particle canvas (gpufx.js) comes in as a texture and is added on top of the scene, bloom included.
+  attachGpu(canvas) {
+    this.gpuTex = new THREE.CanvasTexture(canvas);
+    this.gpuTex.colorSpace = THREE.NoColorSpace; this.gpuTex.generateMipmaps = false; this.gpuTex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: `uniform sampler2D tGpu; uniform float uGain; varying vec2 vUv; void main(){ gl_FragColor = vec4(texture2D(tGpu, vUv).rgb * ${(1 / OUT_SCALE).toFixed(3)} * uGain, 0.0); }`,
+      uniforms: { tGpu: { value: this.gpuTex }, uGain: { value: 1 } },
+      transparent: true, depthTest: false, depthWrite: false,
+      blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+    });
+    this.gpuQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    this.gpuQuad.frustumCulled = false; this.gpuQuad.renderOrder = 19; this.gpuQuad.layers.enable(BLOOM); this.gpuQuad.visible = false;
+    // dense particle clouds would bloom into a white-out: they only feed the glow at a third of their strength
+    this.gpuQuad.onBeforeRender = (r, sc, cam) => { mat.uniforms.uGain.value = cam.layers.isEnabled(0) ? 1 : 0.3; };
+    this.scene.add(this.gpuQuad);
+    if (this.W > 4) this.resize(this.W, this.H);
+  }
+
+  // ───────────────────────────────────────────── hand powers (positions in camera pixels, y down — converted here)
+  // Glowing energy ball in the palm: bigger while the hand is open, brighter and crackling while a fist charges.
+  palmOrb(h, level, charge, t, color = [0.35, 0.8, 2.2]) {
+    if (level < 0.05) return;
+    const H = this.H, p = { x: h.palm.x, y: H - h.palm.y }, r = h.size * (0.35 + 0.35 * level) * (1 - charge * 0.35);
+    const flick = 0.85 + 0.15 * Math.sin(t * 40 + h.id);
+    this.fx.flare.flash(p.x, p.y, r * 2.6 * flick, color[0] * 0.4, color[1] * 0.4, color[2] * 0.4, 0.7);
+    this.fx.flare.flash(p.x, p.y, r * 1.1 * (1 + charge * 0.4), color[0] * 0.45 + 0.55, color[1] * 0.45 + 0.55, color[2] * 0.45 + 0.55, 0.9);
+    for (let i = 0; i < 2; i++) this.ribbons.ring(p.x, p.y, r * (1.1 + i * 0.35 + 0.15 * Math.sin(t * 7 + i * 2)), h.size * 0.04, () => [...color, 0.75 - i * 0.25], 36);
+    if (charge > 0.15) {
+      for (let i = 0; i < 3; i++) {
+        const a = Math.random() * Math.PI * 2, L = r * (1.6 + Math.random() * 1.6 * charge);
+        const path = boltPath({ x: p.x + Math.cos(a) * r * 0.6, y: p.y + Math.sin(a) * r * 0.6 }, { x: p.x + Math.cos(a) * L, y: p.y + Math.sin(a) * L }, 0.35, 3);
+        this.ribbons.strip(path, (u) => h.size * 0.05 * (1 - u * 0.6), () => [color[0], color[1], color[2] * 1.1, 0.9]);
+      }
+    }
+  }
+  // Lightning between two points (fingers to palm, hand to hand, hero to hero).
+  // `seed` keeps the same jagged shape until it changes (~6×/s), so bolts crackle instead of strobing.
+  arc(a, b, width, color = [0.35, 0.55, 2.0], seed = 1, jag = 0.25, depth = 5) {
+    const H = this.H;
+    const rnd = Math.random; let s = (seed * 2654435761) >>> 0;
+    Math.random = () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    let path;
+    try { path = boltPath({ x: a.x, y: H - a.y }, { x: b.x, y: H - b.y }, jag, depth); } finally { Math.random = rnd; }
+    this.ribbons.strip(path, (u) => width * (1 - Math.abs(u - 0.5) * 0.8), () => [color[0] * 0.5, color[1] * 0.5, color[2] * 0.6, 0.5]);
+    this.ribbons.strip(path, () => width * 0.28, () => [1.8, 2.0, 2.5, 1]);
+  }
+  // A glowing trail through a list of points (magic finger). pts: [{x,y,age}] oldest first, y down.
+  trail(pts, width, hue, life) {
+    if (pts.length < 2) return;
+    const H = this.H, line = pts.map((p) => ({ x: p.x, y: H - p.y }));
+    const fade = (u) => Math.max(0, 1 - pts[Math.min(pts.length - 1, Math.round(u * (pts.length - 1)))].age / life);
+    this.ribbons.strip(line, (u) => width * (0.3 + 0.7 * u) * 2.2, (u) => { const c = hsl(hue + u * 0.5, 1, 0.55, 1.6); return [c[0] * 0.6, c[1] * 0.6, c[2] * 0.6, fade(u) * 0.55]; });
+    this.ribbons.strip(line, (u) => width * (0.3 + 0.7 * u) * 0.6, (u) => [1.7, 1.7, 1.8, fade(u)]);
+  }
+  // Fireball: a hot core with a flickering corona. p in camera pixels (y down).
+  fireball(p, r, kind = 'fire') {
+    const H = this.H, y = H - p.y;
+    const hot = kind === 'ice' ? [0.6, 1.4, 2.4] : [2.4, 1.2, 0.35];
+    this.fx.flare.flash(p.x, y, r * 3.2, hot[0] * 0.3, hot[1] * 0.3, hot[2] * 0.3, 0.7);
+    this.fx.flare.flash(p.x, y, r * 1.8, hot[0] * 0.7, hot[1] * 0.7, hot[2] * 0.7, 1);
+    this.fx.flare.flash(p.x, y, r * 0.9, 2.4, 2.3, 2.1, 1);
+    if (kind === 'ice') this.fx.ice.spawn({ x: p.x + (Math.random() - 0.5) * r, y: y + (Math.random() - 0.5) * r, vx: 0, vy: 0, age: 0, life: 0.4, size0: r * 1.2, size1: r * 0.3, drag: 0.95, color: () => [0.5, 0.9, 1.4], alpha: (u) => (1 - u) * 0.5 });
+    else this.fx.fire.spawn({ x: p.x + (Math.random() - 0.5) * r, y: y + (Math.random() - 0.5) * r, vx: 0, vy: r * 2, age: 0, life: 0.35, size0: r * 1.4, size1: r * 0.4, drag: 0.95, color: (u) => (u < 0.3 ? [2.6, 1.6, 0.5] : [1.6, 0.4, 0.08]), alpha: (u) => (1 - u) * 0.6 });
+  }
+  // Big hit: a flash + sparks (the WebGL part of blasts, fireball impacts and team combos).
+  boom(p, r, color = [2.2, 1.6, 0.6], n = 40) {
+    const H = this.H, y = H - p.y;
+    this.fx.flare.flash(p.x, y, r * 2.4, color[0] * 0.35, color[1] * 0.35, color[2] * 0.35, 0.7);
+    for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, sp = r * (2 + Math.random() * 6); this.fx.spark.spawn({ x: p.x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, age: 0, life: 0.5 + Math.random() * 0.5, size0: r * 0.25, size1: 0, grav: -r * 3, drag: 0.94, color: () => color }); }
+  }
+
   // Drop 3D for faces that left; show the occluder only when something 3D is on the head.
   syncHeads(faces) {
     const live = new Set(faces.map((f) => f.id));
     for (const [id, h] of this.heads) {
-      if (!live.has(id)) { this.scene.remove(h.anchor); dispose(h.anchor); this.heads.delete(id); continue; }
+      if (!live.has(id)) { this.scene.remove(h.anchor); dispose(h.anchor); if (h.paint) { this.scene.remove(h.paint.group); dispose(h.paint.group); } this.heads.delete(id); continue; }
       h.occ.visible = !!(h.helmet || h.robo);
     }
   }
@@ -500,6 +584,10 @@ export class Engine {
     u.uUseBehind.value = this.layers.behind.used ? 1 : 0;
     u.uUseFront.value = this.layers.front.used ? 1 : 0;
     u.uAura.value = o.aura || 0; u.uInvis.value = o.invis || 0; u.uSpeed.value = o.speed || 0;
+    u.uSplit.value = o.split ?? 2;
+    u.uFxA.value.set(...(o.fxA || [o.aura || 0, o.invis || 0, o.speed || 0]));
+    u.uFxB.value.set(...(o.fxB || [o.aura || 0, o.invis || 0, o.speed || 0]));
+    if (this.gpuTex) { this.gpuTex.needsUpdate = !!o.gpu; this.gpuQuad.visible = !!o.gpu; }
     u.uTime.value = o.t; u.uRim.value = o.rim || 0;
     if (o.rimColor) u.uRimColor.value.setRGB(...o.rimColor);
     if (o.bgTint) u.uBgTint.value.setRGB(...o.bgTint);
@@ -533,6 +621,7 @@ export class Engine {
     const fu = this.final.uniforms;
     fu.uMirror.value = o.mirror ? 1 : 0; fu.uLook.value = o.look || 0; fu.uTime.value = o.t; fu.uFrost.value = o.frost || 0;
     fu.uBloom.value = this.bloomOn ? 0.6 : 0; fu.uLookMix.value = 1;
+    fu.uShake.value.set(o.shake?.x || 0, o.shake?.y || 0);
     this.r.setRenderTarget(null);
     this.r.render(this.finalScene, this.flatCam);
 
@@ -568,6 +657,28 @@ Engine.prototype.preview3D = function (build, f, size = 184, t = 1.3) {
   const c = document.createElement('canvas'); c.width = c.height = size;
   const img = c.getContext('2d').createImageData(size, size);
   for (let y = 0; y < size; y++) img.data.set(buf.subarray((size - 1 - y) * size * 4, (size - y) * size * 4), y * size * 4);   // GL rows are bottom-up
+  c.getContext('2d').putImageData(img, 0, 0);
+  return c;
+};
+// Face paint on the preview face (tile pictures). The "skin" under it is a flat warm brown, so the shading is neutral.
+Engine.prototype.previewPaint = function (id, f, size = 184) {
+  const r = this.r;
+  if (!this.pvSkin) { this.pvSkin = new THREE.DataTexture(new Uint8Array([150, 110, 90, 255]), 1, 1); this.pvSkin.colorSpace = THREE.SRGBColorSpace; this.pvSkin.needsUpdate = true; }
+  const pm = buildPaintMesh(this.pvSkin);
+  updatePaintMesh(pm, f, id, 1, 1.3, 100, 100, 0.194, this.pvSkin);
+  const scene = new THREE.Scene(); scene.add(pm.group);
+  pm.glowMesh.visible = false;
+  const rt = new THREE.WebGLRenderTarget(size, size); rt.texture.colorSpace = THREE.SRGBColorSpace;
+  const cam = new THREE.OrthographicCamera(0, 100, 100, 0, -1e4, 1e4);
+  const prevColor = new THREE.Color(); r.getClearColor(prevColor); const prevAlpha = r.getClearAlpha();
+  r.setClearColor(0x000000, 0); r.setRenderTarget(rt); r.clear(); r.render(scene, cam);
+  const buf = new Uint8Array(size * size * 4);
+  r.readRenderTargetPixels(rt, 0, 0, size, size, buf);
+  r.setRenderTarget(null); r.setClearColor(prevColor, prevAlpha);
+  pm.mesh.geometry.dispose(); pm.mesh.material.dispose(); pm.glowMesh.material.dispose(); rt.dispose();
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const img = c.getContext('2d').createImageData(size, size);
+  for (let y = 0; y < size; y++) img.data.set(buf.subarray((size - 1 - y) * size * 4, (size - y) * size * 4), y * size * 4);
   c.getContext('2d').putImageData(img, 0, 0);
   return c;
 };

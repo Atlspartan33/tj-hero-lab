@@ -4,12 +4,19 @@
 // OR from tapping the screen.  ?demo uses test/face.jpg instead of the camera (&jaw=0.7 / &brow=0.8 fake a face).
 import { Tracker, computeFrame, FACE_OVAL } from './face.js';
 import {
-  MASKS, POWERS, GEAR, LOOKS, DRAWERS, ALL, BG_LIGHT, popIn, drawMask, drawBadge, drawCape, drawCapeClasps, drawWings,
+  MASKS, PAINTS, POWERS, HAND_POWERS, GEAR, LOOKS, DRAWERS, ALL, BG_LIGHT, popIn, drawMask, drawBadge, drawCape, drawCapeClasps, drawWings,
   updateBreath, drawBreath, drawMouthGlow, drawLasers, breathLevel, surpriseLevel, setMirror,
 } from './gear.js';
 import { drawJetpack, drawDinoBuddy, drawPowerPreview, drawSpeedGhosts, drawAnyBackground } from './gear3.js';
 import { Engine } from './engine.js';
-import { buildHelmet, buildRoboBuddy } from './helmets3d.js';
+import { buildHelmet, buildRoboBuddy, loadHelmetModels, hasModel } from './helmets3d.js';
+import { HandTracker } from './hands.js';
+import { loadFaceGeo, faceGeoReady } from './facepaint.js';
+import { createGpuFx, K } from './gpufx.js';
+import {
+  G, handPower, updateBalls, drawTrails, drawWords, drawPlayerBadge, stormField, stormEmit, shake, shakeOffset, bigWord,
+  PLAYER_HUE, drawHandPreview, drawStormPreview,
+} from './play.js';
 import * as sfx from './sfx.js';
 import * as voice from './voice.js';
 import * as gallery from './gallery.js';
@@ -17,7 +24,7 @@ import * as gallery from './gallery.js';
 const $ = (id) => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 const DEMO = Q.has('demo');
-const FAKE = { jaw: parseFloat(Q.get('jaw') || '0'), brow: parseFloat(Q.get('brow') || '0') };
+const FAKE = { jaw: parseFloat(Q.get('jaw') || '0'), brow: parseFloat(Q.get('brow') || '0'), hand: Q.get('hand') };
 
 const S = {
   facing: 'user', stream: null, landmarker: null, segmenter: null, gen: 0, raf: 0,
@@ -25,15 +32,32 @@ const S = {
   noFaceSince: 0, lumaAt: 0, dark: false, wake: null, saidFindAt: 0,
   boostUntil: 0, powerUsedAt: 0, tapHinted: false, shieldAt: 0, ripples: [], rippleAt: 0, frost: 0,
   frameMs: 33, quality: 2, qAt: 0, ambAt: 0, segSkip: 0, capture: null,
-  sel: Object.fromEntries(ALL.map((it) => [it.id, { on: false, at: 0 }])),
+  gesture: null, player: 0, twoSeen: false, twoSince: 0, firedAt: [0, 0], comboAt: 0, combo: null, hi5At: 0, skin: 0.25, gpuUntil: 0, handsShown: 0, noHandSince: 0, saidHandAt: 0,
 };
+// Two heroes can dress up differently. Backgrounds and Looks change the whole picture, so they're shared.
+const ITEM = Object.fromEntries(ALL.map((it) => [it.id, it]));
+const SHARED = (it) => it.group === 'bg' || it.group === 'look';
+const newSel = () => Object.fromEntries(ALL.filter((it) => !SHARED(it)).map((it) => [it.id, { on: false, at: 0 }]));
+S.shared = Object.fromEntries(ALL.filter(SHARED).map((it) => [it.id, { on: false, at: 0 }]));
+S.players = [newSel(), newSel()];
+const rec = (id, p = S.player) => (SHARED(ITEM[id]) ? S.shared[id] : S.players[p][id]);
+function bindSel() { S.sel = Object.fromEntries(ALL.map((it) => [it.id, rec(it.id)])); }   // the active hero's view (tests use it)
+bindSel();
 const tracker = new Tracker();
+const hands = new HandTracker();
+let gfx = null;                                     // WebGPU particles (null = not supported → extras skipped)
 const video = $('video'), canvas = $('canvas');
 let engine = null;
 try { engine = new Engine(canvas); } catch (e) { console.error('WebGL engine failed', e); }
 canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); location.reload(); });
 let demoImg = null;
-const isOn = (id) => S.sel[id].on;
+const isOn = (id, p = S.player) => rec(id, p).on;
+const pick = (list, p) => list.find((it) => isOn(it.id, p)) || null;
+const maskOf = (p) => pick(MASKS, p);
+const paintOf = (p) => pick(PAINTS, p)?.id || null;
+const handOf = (p) => pick(HAND_POWERS, p)?.id || null;
+const breathOf = (p) => POWERS.find((it) => it.group === 'breath' && isOn(it.id, p))?.id || null;
+const eyesOf = (p) => POWERS.find((it) => it.group === 'eyes' && isOn(it.id, p))?.id || null;
 
 // ───────────────────────────────────────────── models (vendored, no CDN)
 const VENDOR = (p) => new URL(`vendor/${p}`, location.href).href;
@@ -64,23 +88,74 @@ function loadSegmenter() {
   })().catch((e) => { segPromise = null; console.warn('segmenter unavailable', e); }));
 }
 
+// Hands: MediaPipe's gesture recognizer (hand landmarks + open palm / fist / pointing). Loaded the first time a
+// hand power is picked, so heroes who never use one don't pay for it.
+let handPromise = null;
+function loadHands() {
+  return (handPromise ??= (async () => {
+    const { m, files } = await vision();
+    const opts = (delegate) => ({ baseOptions: { modelAssetPath: VENDOR('gesture_recognizer.task'), delegate }, runningMode: 'VIDEO', numHands: 4, minHandDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    try { S.gesture = await m.GestureRecognizer.createFromOptions(files, opts('GPU')); }
+    catch { S.gesture = await m.GestureRecognizer.createFromOptions(files, opts('CPU')); }
+  })().catch((e) => { handPromise = null; console.warn('hands unavailable', e); }));
+}
+
 // ───────────────────────────────────────────── body cut-out
 // The segmenter's person mask is smoothed over time and handed to the engine as a GPU texture.
-const seg = { prev: null, alpha: null, ready: false };
+const seg = { prev: null, alpha: null, ready: false, w: 0, h: 0, stamp: 0 };
 const smooth = (v) => { const t = Math.max(0, Math.min(1, (v - 0.3) / 0.45)); return t * t * (3 - 2 * t); };
 function segment(src, ts) {
   try {
     S.segmenter.segmentForVideo(src, ts, (res) => {
       const m = res.confidenceMasks?.[0];
-      if (!m) return;
-      const a = m.getAsFloat32Array();
-      if (!seg.prev || seg.prev.length !== a.length) { seg.prev = new Float32Array(a); seg.alpha = new Uint8Array(a.length); }
-      const p = seg.prev, out = seg.alpha;
-      for (let i = 0; i < a.length; i++) { p[i] = p[i] * 0.35 + a[i] * 0.65; out[i] = smooth(p[i]) * 255; }   // temporal smoothing kills edge flicker
-      engine.setMask(out, m.width, m.height);
-      seg.ready = true;
+      if (m) applyMask(m.getAsFloat32Array(), m.width, m.height);
     });
   } catch (e) { console.warn(e); }
+}
+function applyMask(a, w, h) {
+  if (!seg.prev || seg.prev.length !== a.length) { seg.prev = new Float32Array(a); seg.alpha = new Uint8Array(a.length); }
+  const p = seg.prev, out = seg.alpha;
+  for (let i = 0; i < a.length; i++) { p[i] = p[i] * 0.35 + a[i] * 0.65; out[i] = smooth(p[i]) * 255; }   // temporal smoothing kills edge flicker
+  engine.setMask(out, w, h);
+  seg.w = w; seg.h = h; seg.stamp++;
+  seg.ready = true;
+}
+
+// ───────────────────────────────────────────── tracking worker
+// The body cut-out and the hand model run in tracker-worker.js, in parallel with the face model on this thread,
+// so turning on a cape or a hand power doesn't slow the picture down. If the worker can't start, both run here instead.
+const TW = { w: null, ready: { seg: false, hands: false }, initing: false, failed: Q.has('noworker'), busy: false, dims: [0, 0], sent: 0 };
+function workerFor(wantSeg, wantHands) {
+  if (TW.failed) return false;
+  if (!TW.w) {
+    try { TW.w = new Worker(new URL('tracker-worker.js', location.href), { type: 'module' }); }
+    catch (e) { console.warn('tracking worker', e); TW.failed = true; return false; }
+    TW.w.onerror = (e) => { console.warn('tracking worker failed', e.message); TW.failed = true; TW.busy = false; };
+    TW.w.onmessage = (e) => {
+      const d = e.data;
+      if (d.type === 'ready') { TW.ready.seg ||= d.seg; TW.ready.hands ||= d.hands; TW.initing = false; return; }
+      if (d.type === 'error') { console.warn('tracking worker', d.message); TW.failed = true; TW.initing = false; return; }
+      if (d.type !== 'result') return;
+      TW.busy = false;
+      if (d.id !== TW.gen) return;                      // a frame from before Home / camera flip
+      if (d.mask) applyMask(d.mask, d.mw, d.mh);
+      if (d.hands) hands.update(d.hands, TW.dims[0], TW.dims[1], performance.now());
+    };
+  }
+  if (!TW.initing && ((wantSeg && !TW.ready.seg) || (wantHands && !TW.ready.hands))) {
+    TW.initing = true;
+    TW.w.postMessage({ type: 'init', base: new URL('./', location.href).href, wantSeg: wantSeg || TW.ready.seg, wantHands: wantHands || TW.ready.hands });
+  }
+  return true;
+}
+TW.gen = 1;
+function workerFrame(src, ts, W, H, doSeg, doHands) {
+  if (TW.busy || !TW.w) return;
+  TW.busy = true; TW.dims = [W, H];
+  const gen = TW.gen;
+  createImageBitmap(src).then((bitmap) => {
+    TW.w.postMessage({ type: 'frame', bitmap, ts, doSeg, doHands, id: gen }, [bitmap]);
+  }).catch(() => { TW.busy = false; });
 }
 
 // ───────────────────────────────────────────── camera
@@ -88,7 +163,12 @@ async function startSource(my) {
   stopSource();
   if (DEMO) {
     demoImg = new Image();
-    await new Promise((res, rej) => { demoImg.onload = res; demoImg.onerror = rej; demoImg.src = 'test/face.jpg'; });
+    await new Promise((res, rej) => { demoImg.onload = res; demoImg.onerror = rej; demoImg.src = Q.get('img') || 'test/face.jpg'; });
+    if (Q.has('two')) {                             // two heroes: the test face twice, side by side
+      const c = document.createElement('canvas'); c.width = demoImg.naturalWidth * 2; c.height = demoImg.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(demoImg, 0, 0); x.drawImage(demoImg, demoImg.naturalWidth, 0);
+      demoImg = c;
+    }
     return;
   }
   if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('no camera api'), { name: 'InsecureError' });
@@ -109,7 +189,7 @@ function stopSource() {
   cancelAnimationFrame(S.raf); S.raf = 0;
   S.stream?.getTracks().forEach((t) => t.stop()); S.stream = null; video.srcObject = null;
   S.wake?.release?.().catch(() => {}); S.wake = null;
-  tracker.reset(); seg.ready = false; seg.prev = null; S.ripples = [];
+  tracker.reset(); hands.reset(); seg.ready = false; seg.prev = null; S.ripples = []; TW.gen++; TW.busy = false;
   S.lastVideoTime = -1; S.noFaceSince = 0;
   sfx.silenceLoops();
 }
@@ -118,6 +198,7 @@ document.addEventListener('visibilitychange', async () => {
   if (S.stream && (!S.wake || S.wake.released)) { try { S.wake = await navigator.wakeLock?.request('screen'); } catch {} }
 });
 const isMirror = () => (DEMO ? Q.has('mirror') : S.facing === 'user');
+const demoSource = () => demoImg;
 
 // ───────────────────────────────────────────── screens
 function showScreen(name) { document.body.dataset.screen = name; }
@@ -191,25 +272,30 @@ function loop() {
   S.raf = requestAnimationFrame(tick);
 }
 const bgId = () => GEAR.find((it) => it.group === 'bg' && isOn(it.id))?.id || null;
-const breathOn = () => POWERS.find((it) => it.group === 'breath' && isOn(it.id))?.id || null;
-const eyesOn = () => POWERS.find((it) => it.group === 'eyes' && isOn(it.id))?.id || null;
 const lookOn = () => LOOKS.find((it) => isOn(it.id))?.look || 0;
 const ambCanvas = document.createElement('canvas'); ambCanvas.width = ambCanvas.height = 8;
 const ambCtx = ambCanvas.getContext('2d', { willReadFrequently: true });
 
 function frame() {
-  const src = DEMO ? demoImg : video;
+  const src = DEMO ? demoSource() : video;
   if (!src) return;
-  const W = DEMO ? src.naturalWidth : src.videoWidth, H = DEMO ? src.naturalHeight : src.videoHeight;
+  const W = DEMO ? src.width || src.naturalWidth : src.videoWidth, H = DEMO ? src.height || src.naturalHeight : src.videoHeight;
   if (!W || !H) return;
   engine.setSource(src, W, H, !DEMO);
   const now = performance.now(), t = now / 1000;
   const dt = Math.min(0.05, Math.max(0.001, t - (S.lastT || t))); S.lastT = t;
   governor(dt * 1000, now);
   const fresh = S.landmarker && (DEMO || video.currentTime !== S.lastVideoTime);
-  const bg = bgId(), look = lookOn(), mask = MASKS.find((it) => isOn(it.id)), breath = breathOn(), eyes = eyesOn();
-  const behind = GEAR.filter((g) => g.behind && isOn(g.id));
-  const wantSeg = !!S.segmenter && (behind.length > 0 || isOn('aura') || isOn('speed') || isOn('invisible') || !!bg);
+  const bg = bgId(), look = lookOn();
+  const anyP = (pred) => pred(0) || pred(1);
+  const onAny = (id) => anyP((p) => isOn(id, p));
+  const behindAny = anyP((p) => GEAR.some((g) => g.behind && isOn(g.id, p)));
+  const needSeg = behindAny || onAny('aura') || onAny('speed') || onAny('invisible') || (onAny('storm') && !!gfx) || !!bg;
+  const needHands = anyP((p) => !!handOf(p)) || (onAny('storm') && !!gfx) || S.twoSeen;
+  const inWorker = (needSeg || needHands) && workerFor(needSeg, needHands);
+  if (!inWorker && needHands) loadHands();
+  const wantSeg = needSeg && (inWorker ? TW.ready.seg || !!S.segmenter : !!S.segmenter);
+  const wantHands = needHands;
 
   if (fresh) {
     S.lastVideoTime = video.currentTime;
@@ -220,52 +306,95 @@ function frame() {
       tracker.update(res, W, H, FAKE.jaw);
       if (FAKE.brow) for (const f of tracker.faces) f.bs.browInnerUp = FAKE.brow;
     }
-    // on the lowest quality tier, cut out the body every other frame
-    if (wantSeg && (S.quality > 0 || (S.segSkip++ % 2 === 0))) { const st = Math.max(now, S.lastSegTs + 1); S.lastSegTs = st; segment(src, st); }
+    // The face model runs every frame. The body cut-out and the hand model are the expensive extras: when both are
+    // needed they take turns (each still updates ~15×/s on a 30 fps camera), and the lowest quality tier halves them again.
+    const wSeg = inWorker && TW.ready.seg, wHands = inWorker && TW.ready.hands;
+    if ((needSeg && wSeg) || (needHands && wHands)) workerFrame(src, ts, W, H, needSeg && wSeg, needHands && wHands);
+    const runHands = wantHands && !!S.gesture && !wHands, runSeg = wantSeg && !wSeg && !!S.segmenter;
+    const tick = S.heavyTick = (S.heavyTick || 0) + 1;
+    const every = S.quality > 0 ? 1 : 2;
+    let doSeg = runSeg && tick % every === 0, doHands = runHands && tick % every === 0;
+    if (runSeg && runHands) { doSeg = tick % (2 * every) === 0; doHands = tick % (2 * every) === every; }
+    if (doHands) {
+      try { hands.update(S.gesture.recognizeForVideo(src, ts), W, H, now); } catch (e) { console.warn(e); }
+    }
+    if (doSeg) { const st = Math.max(now, S.lastSegTs + 1); S.lastSegTs = st; segment(src, st); }
   }
+  if (!wantHands && hands.hands.length) hands.reset();
+  if (FAKE.hand) fakeHands(W, H, t, now);
   const segOK = wantSeg && seg.ready;
   const m = isMirror();
   setMirror(m);
-  const k = (id) => popIn(S.sel[id].at, t);
   const boost = now < S.boostUntil ? 1 : 0;
   const faces = tracker.faces;
+  assignPlayers(faces, W, m, now);
+  for (const h of hands.hands) h.player = nearestPlayer(h, faces);
+  const kf = (f, id) => popIn(rec(id, f.player).at, t);
 
   // ── 2D layers (painted in camera pixels; the engine scales them)
   if (bg && segOK) drawAnyBackground(engine.layer('bg'), bg, W, H, t);
   let nozzles = [];
-  if (segOK && behind.length) {
+  if (segOK && behindAny) {
     const c = engine.layer('behind');
     for (const f of faces) {
-      if (isOn('wings')) drawWings(c, f, k('wings'), t);
-      if (isOn('jetpack')) nozzles = nozzles.concat(drawJetpack(c, f, k('jetpack'), t));
-      if (isOn('cape')) drawCape(c, f, k('cape'), t, H);
+      const p = f.player;
+      if (isOn('wings', p)) drawWings(c, f, kf(f, 'wings'), t);
+      if (isOn('jetpack', p)) nozzles = nozzles.concat(drawJetpack(c, f, kf(f, 'jetpack'), t));
+      if (isOn('cape', p)) drawCape(c, f, kf(f, 'cape'), t, H);
     }
   }
-  const twoD = (mask && !mask.is3d) || isOn('cape') || isOn('badge');
-  const topD = isOn('dinobud') || breath === 'bubble' || breath === 'shout';
+  const two = faces.length >= 2;
+  const twoD = faces.some((f) => { const mk = maskOf(f.player); return (mk && !mk.is3d) || isOn('cape', f.player) || isOn('badge', f.player); });
+  const topD = two || G.words.length > 0 || faces.some((f) => isOn('dinobud', f.player) || ['bubble', 'shout'].includes(breathOf(f.player)));
   const lv = { fire: 0, ice: 0, bubble: 0, shout: 0, laser: 0, crackle: 0 };
   const front = twoD && faces.length ? engine.layer('front') : null;
-  const top = topD && faces.length ? engine.layer('top') : null;
+  const top = topD ? engine.layer('top') : null;
   let heat = null;
+  const fireLv = [0, 0];
+  const ctx = { engine, gfx, W, H, t, dt, now, ripple: addRipple, fire: (p) => { S.firedAt[p ?? 0] = now; } };
 
-  // ── per face: 2D stickers, 3D pieces, GPU effects
+  // ── Star Storm orbits first, so their field slots stay put frame to frame
+  if (gfx) {
+    for (const f of [...faces].sort((a, b) => a.player - b.player)) {
+      if (!isOn('storm', f.player)) continue;
+      const idx = stormField(gfx, f, H, boost, PLAYER_HUE[f.player]);
+      stormEmit(gfx, f, dt, idx, PLAYER_HUE[f.player] + 0.02);
+      S.gpuUntil = now + 4000;
+    }
+    for (const h of hands.hands) {
+      const sp = Math.hypot(h.vel.x, h.vel.y) / h.size;
+      gfx.field({ x: h.palm.x, y: H - h.palm.y, radius: h.size * 2.6, strength: Math.min(3, 0.6 + sp * 0.08), kind: 0 });
+    }
+  }
+
+  // ── per face: 2D stickers, 3D pieces, face paint, effects
   engine.syncHeads(faces);
   for (const f of faces) {
+    const p = f.player, mask = maskOf(p), breath = breathOf(p), eyes = eyesOf(p), paint = paintOf(p);
     const bl = breath ? Math.max(breathLevel(f), boost) : 0;
     const el = eyes ? Math.max(surpriseLevel(f), boost) : 0;
+    fireLv[p] = Math.max(fireLv[p], breath ? breathLevel(f) : 0, eyes ? surpriseLevel(f) : 0);
     if (front) {
-      if (isOn('cape') && segOK) drawCapeClasps(front, f, k('cape'));
-      if (isOn('badge')) drawBadge(front, f, k('badge'), t);
-      if (mask && !mask.is3d) drawMask(front, f, mask.id, k(mask.id), t);
+      if (isOn('cape', p) && segOK) drawCapeClasps(front, f, kf(f, 'cape'));
+      if (isOn('badge', p)) drawBadge(front, f, kf(f, 'badge'), t);
+      if (mask && !mask.is3d) drawMask(front, f, mask.id, kf(f, mask.id), t);
     }
     if (top) {
-      if (isOn('dinobud')) drawDinoBuddy(top, f, k('dinobud'), t);
+      if (isOn('dinobud', p)) drawDinoBuddy(top, f, kf(f, 'dinobud'), t);
       if (breath === 'bubble' || breath === 'shout') { updateBreath(f, breath, bl, dt); drawBreath(top, f); }
     }
-    engine.setHelmet(f, mask?.is3d ? mask.id : null, mask?.is3d ? k(mask.id) : 1, t, f.bs);
-    engine.setRobo(f, isOn('robo'), k('robo'), t);
-    engine.setShield(f, isOn('shield'), Math.max(0, 1 - (now - S.shieldAt) / 700), t);
-    if (breath === 'fire' || breath === 'ice' || breath === 'rainbow') engine.breath(f, breath, bl, dt);
+    engine.setPaint(f, paint && faceGeoReady() ? paint : null, paint ? kf(f, paint) : 1, t, S.skin);
+    engine.setHelmet(f, mask?.is3d ? mask.id : null, mask?.is3d ? kf(f, mask.id) : 1, t, f.bs);
+    engine.setRobo(f, isOn('robo', p), kf(f, 'robo'), t);
+    engine.setShield(f, isOn('shield', p), Math.max(0, 1 - (now - S.shieldAt) / 700), t);
+    if (breath === 'fire' || breath === 'ice' || breath === 'rainbow') {
+      engine.breath(f, breath, bl, dt);
+      if (gfx && bl > 0.05) {
+        const P = f.P, mx = (P[13].x + P[14].x) / 2, my = H - (P[13].y + P[14].y) / 2;
+        gfx.emit({ x: mx, y: my, dx: -Math.sin(f.ang), dy: -Math.cos(f.ang), spread: 0.75, speed: f.fw * 2.4, life: 0.9, size: f.fw * (breath === 'ice' ? 0.08 : 0.05), kind: breath === 'fire' ? K.FIRE : breath === 'ice' ? K.ICE : K.MAGIC, jitter: f.fw * 0.05, hue: t * 0.3 }, 3200 * dt * bl);
+        S.gpuUntil = now + 2000;
+      }
+    }
     if (breath) { const key = breath === 'rainbow' ? 'ice' : breath; lv[key] = Math.max(lv[key], bl * (breath === 'rainbow' ? 0.6 : 1)); }
     if (breath === 'fire' && bl > 0.05) {
       const mx = (f.P[13].x + f.P[14].x) / 2, my = (f.P[13].y + f.P[14].y) / 2 + f.fw * 0.55;
@@ -273,40 +402,73 @@ function frame() {
     }
     if (breath === 'shout' && bl > 0.3 && t - S.rippleAt > 0.35) {
       S.rippleAt = t;
-      const mx = (f.P[13].x + f.P[14].x) / 2, my = (f.P[13].y + f.P[14].y) / 2;
-      S.ripples.push({ x: mx / W, y: 1 - my / H, age: 0, str: bl });
-      if (S.ripples.length > 4) S.ripples.shift();
+      addRipple((f.P[13].x + f.P[14].x) / 2, (f.P[13].y + f.P[14].y) / 2, bl);
     }
     if (eyes === 'laser') engine.lasers(f, el, t);
     if (eyes === 'hypno') engine.hypno(f, el, t);
     if (eyes) lv.laser = Math.max(lv.laser, el * (eyes === 'hypno' ? 0.5 : 1));
-    engine.lightningFx(f, isOn('lightning'), t, !!boost);
-    if (isOn('lightning')) lv.crackle = Math.max(lv.crackle, boost ? 1 : 0.35);
-    if (isOn('aura')) engine.auraSparks(f, dt);
+    engine.lightningFx(f, isOn('lightning', p), t, !!boost);
+    if (isOn('lightning', p)) lv.crackle = Math.max(lv.crackle, boost ? 1 : 0.35);
+    if (isOn('aura', p)) engine.auraSparks(f, dt);
+    if (top && two) drawPlayerBadge(top, f, m);
   }
   if (nozzles.length) engine.jetFlames(nozzles, dt);
+
+  // ── hands
+  let handsShown = 0;
+  for (const h of hands.hands) {
+    const power = handOf(h.player);
+    if (!power) continue;
+    handsShown++;
+    const r = handPower(ctx, h, power);
+    if (r.loop) lv[r.loop] = Math.max(lv[r.loop] || 0, r.lv);
+    if (gfx) S.gpuUntil = now + 2500;
+  }
+  S.handsShown = handsShown;
+  for (const p of [0, 1]) if (now - (S.firedAt[p] || 0) < 450) fireLv[p] = 1;
+  updateBalls(ctx);
+  drawTrails(engine, dt, now);
+  combos(faces, fireLv, now, W, H);
+  if (top) drawWords(top, dt, m);
+
   for (const r of S.ripples) r.age += dt;
   S.ripples = S.ripples.filter((r) => r.age < 1.1);
-  const iceTarget = breath === 'ice' ? Math.max(0, ...faces.map((f) => Math.max(breathLevel(f), boost))) : 0;
+  const iceTarget = Math.max(G.frostKick, ...faces.filter((f) => breathOf(f.player) === 'ice').map((f) => Math.max(breathLevel(f), boost)), 0);
+  G.frostKick = Math.max(0, G.frostKick - dt * 1.2);
   S.frost += (iceTarget - S.frost) * Math.min(1, dt * 3);
 
-  // match the 3D lighting to the room every half second
-  if (now - S.ambAt > 500) {
+  // match the 3D lighting to the room every half second; measure the skin under the face paint
+  if (now - S.ambAt > 400) {
     S.ambAt = now;
     try {
       ambCtx.drawImage(src, 0, 0, 8, 8);
       const d = ambCtx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0;
       for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
       const n = (d.length / 4) * 255; engine.setAmbient(r / n, g / n, b / n);
+      const f = faces[0];
+      if (f && faces.some((x) => paintOf(x.player))) S.skin = skinLuma(src, f);
     } catch {}
   }
 
+  // per-hero glow / invisible / speed: split the picture between the two heroes
+  const fxOf = (p) => [isOn('aura', p) ? 1 : 0, isOn('invisible', p) ? 1 : 0, isOn('speed', p) ? 1 : 0];
+  let split = 2, fxA = fxOf(faces[0]?.player ?? 0), fxB = fxA;
+  if (two) {
+    const [a, b] = [...faces].sort((x, y) => x.eyes.x - y.eyes.x);    // source-image left → right
+    split = (a.eyes.x + b.eyes.x) / 2 / W; fxA = fxOf(a.player); fxB = fxOf(b.player);
+  }
+  let gpuDrawn = false;
+  if (gfx && now < S.gpuUntil) {
+    gfx.resize(W, H);
+    if (segOK && seg.alpha && seg.gpuStamp !== seg.stamp) { gfx.setMask(seg.alpha, seg.w, seg.h); seg.gpuStamp = seg.stamp; }
+    gpuDrawn = gfx.frame(dt, t, faces[0]?.fw || H * 0.3);
+  } else if (gfx && gfx.alive) { gfx.clear(); }
   const light = bg ? BG_LIGHT[bg] : null;
   engine.render({
     t, dt, mirror: m, look, useBg: !!(bg && segOK), useMask: segOK,
-    aura: isOn('aura') ? 1 : 0, invis: isOn('invisible') ? 1 : 0, speed: isOn('speed') ? 1 : 0,
-    rim: light ? 0.9 : isOn('aura') ? 0.5 : 0, rimColor: light ? light.rim : [1.0, 0.85, 0.3], bgTint: light ? light.tint : [1, 1, 1],
-    ripples: S.ripples, heat, frost: S.frost,
+    aura: onAny('aura') ? 1 : 0, invis: onAny('invisible') ? 1 : 0, speed: onAny('speed') ? 1 : 0, split, fxA, fxB,
+    rim: light ? 0.9 : onAny('aura') ? 0.5 : 0, rimColor: light ? light.rim : [1.0, 0.85, 0.3], bgTint: light ? light.tint : [1, 1, 1],
+    ripples: S.ripples, heat, frost: S.frost, shake: shakeOffset(now), gpu: gpuDrawn,
   });
   if (S.capture) { const c = S.capture; S.capture = null; c(); }   // read the canvas in the same task it was drawn
 
@@ -314,6 +476,110 @@ function frame() {
   if (Math.max(lv.fire, lv.ice, lv.bubble, lv.shout, lv.laser) > 0.5 && !boost) S.powerUsedAt = now;
   powerHints(lv);
   hints(now, src);
+}
+
+// ───────────────────────────────────────────── two heroes
+// Left-to-right on screen = hero 1, hero 2. A hero alone keeps the number they had.
+function assignPlayers(faces, W, m, now) {
+  if (faces.length >= 2) {
+    const sx = (f) => (m ? W - f.eyes.x : f.eyes.x);
+    [...faces].sort((a, b) => sx(a) - sx(b)).forEach((f, i) => { f.player = i % 2; });
+    S.twoSince ||= now;
+    if (!S.twoSeen && now - S.twoSince > 1200) showPlayers(true);
+    S.oneSince = 0;
+  } else {
+    S.twoSince = 0;
+    for (const f of faces) if (f.player === undefined) f.player = 0;
+    // one hero left: the drawer follows the hero who's still here, and the 1/2 switch tucks away after a moment
+    if (S.twoSeen && faces.length === 1) {
+      if (faces[0].player !== S.player) setPlayer(faces[0].player, true);
+      S.oneSince ||= now;
+      if (now - S.oneSince > 2500) hidePlayers();
+    }
+  }
+}
+function nearestPlayer(h, faces) {
+  let best = 0, bd = Infinity;
+  for (const f of faces) { const d = Math.hypot(f.eyes.x - h.palm.x, f.eyes.y - h.palm.y) / f.fw; if (d < bd) { bd = d; best = f.player; } }
+  return best;
+}
+function addRipple(x, y, str) {
+  const W = engine.W, H = engine.H;
+  S.ripples.push({ x: x / W, y: 1 - y / H, age: 0, str });
+  if (S.ripples.length > 4) S.ripples.shift();
+}
+// Both heroes firing at once → TEAM POWER. Two hands from different heroes meeting → HIGH FIVE.
+function combos(faces, fireLv, now, W, H) {
+  const a = faces.find((f) => f.player === 0), b = faces.find((f) => f.player === 1);
+  if (S.combo && now - S.combo.at < 1400 && a && b) {
+    const seed = Math.floor(now / 110);
+    engine.arc(a.eyes, b.eyes, Math.min(a.fw, b.fw) * 0.16, [1.2, 0.6, 2.2], seed);
+    engine.arc({ x: a.eyes.x, y: a.eyes.y - a.fw * 0.3 }, { x: b.eyes.x, y: b.eyes.y - b.fw * 0.3 }, Math.min(a.fw, b.fw) * 0.1, [0.4, 1.4, 2.2], seed + 7);
+    if (gfx) S.gpuUntil = now + 2500;
+  }
+  if (a && b && fireLv[0] > 0.5 && fireLv[1] > 0.5 && now - S.comboAt > 4500) {
+    S.comboAt = now; S.combo = { at: now };
+    const mid = { x: (a.eyes.x + b.eyes.x) / 2, y: Math.min(a.eyes.y, b.eyes.y) - (a.fw + b.fw) * 0.45 };
+    gfx?.emit({ x: mid.x, y: H - mid.y, spread: Math.PI * 2, speed: (a.fw + b.fw) * 4, life: 1.6, size: a.fw * 0.03, kind: K.BURST, hue: Math.random() }, 12000);
+    gfx?.emit({ x: mid.x, y: H - mid.y, spread: Math.PI * 2, speed: (a.fw + b.fw) * 2, life: 1.8, size: a.fw * 0.04, kind: K.MAGIC, hue: 0 }, 5000);
+    engine.boom(mid, a.fw * 0.5, [2.2, 1.5, 2.4], 90);
+    addRipple(a.eyes.x, a.eyes.y, 1); addRipple(b.eyes.x, b.eyes.y, 1); addRipple(mid.x, mid.y, 1);
+    shake(now, 600, 0.016);
+    bigWord('TEAM POWER!', mid.x, mid.y, (a.fw + b.fw) * 0.26);
+    sfx.boom(); sfx.tada(); voice.say('team');
+  }
+  // high five
+  if (now - S.hi5At > 2500) {
+    const hs = hands.hands;
+    for (let i = 0; i < hs.length; i++) for (let j = i + 1; j < hs.length; j++) {
+      const h1 = hs[i], h2 = hs[j];
+      if (h1.player === h2.player || h1.open < 0.5 || h2.open < 0.5) continue;
+      if (Math.hypot(h1.palm.x - h2.palm.x, h1.palm.y - h2.palm.y) > (h1.size + h2.size) * 1.1) continue;
+      S.hi5At = now;
+      const mid = { x: (h1.palm.x + h2.palm.x) / 2, y: (h1.palm.y + h2.palm.y) / 2 };
+      gfx?.emit({ x: mid.x, y: H - mid.y, spread: Math.PI * 2, speed: h1.size * 12, life: 1.2, size: h1.size * 0.07, kind: K.BURST, hue: 0.13 }, 6000);
+      engine.boom(mid, h1.size * 0.9, [2.6, 2.0, 0.6], 70);
+      addRipple(mid.x, mid.y, 0.9);
+      shake(now, 300, 0.008);
+      bigWord('HIGH FIVE!', mid.x, mid.y - h1.size * 1.8, h1.size * 1.3);
+      sfx.tada(); voice.say('high_five');
+      if (gfx) S.gpuUntil = now + 2500;
+      return;
+    }
+  }
+}
+// Average linear luminance of the cheeks/nose, so painted faces keep the room's real light.
+const skinCanvas = document.createElement('canvas'); skinCanvas.width = skinCanvas.height = 6;
+const skinCtx = skinCanvas.getContext('2d', { willReadFrequently: true });
+function skinLuma(src, f) {
+  const P = f.P, x0 = P[234].x + f.fw * 0.15, y0 = P[6].y, w = f.fw * 0.7, h = (P[152].y - P[6].y) * 0.6;
+  skinCtx.drawImage(src, x0, y0, w, h, 0, 0, 6, 6);
+  const d = skinCtx.getImageData(0, 0, 6, 6).data;
+  const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  let s = 0;
+  for (let i = 0; i < d.length; i += 4) s += 0.299 * lin(d[i]) + 0.587 * lin(d[i + 1]) + 0.114 * lin(d[i + 2]);
+  return Math.max(0.03, s / (d.length / 4));
+}
+// ?demo&hand=open|fist|blast|point: a fake hand beside the test face, for screenshots without a camera.
+function fakeHands(W, H, t, now) {
+  const f = tracker.faces[0];
+  const wave = FAKE.hand === 'wave' ? 1 : 0;
+  const cx = (f ? f.eyes.x + f.fw * 1.1 : W * 0.7) + wave * Math.cos(t * 3) * (f?.fw || 100) * 0.5, cy = (f ? f.eyes.y + f.fw * 0.6 : H * 0.6) + wave * Math.sin(t * 3) * (f?.fw || 100) * 0.4, s = f ? f.fw * 0.42 : H * 0.12;
+  const open = FAKE.hand === 'fist' ? 0 : 1;
+  const P = [];
+  const add = (x, y) => P.push({ x: cx + x * s, y: cy + y * s, z: 0 });
+  add(0, 0.9);                                                                  // wrist
+  const fingers = [[-0.75, 0.55, -0.5], [-0.35, -0.2, -0.15], [0, -0.25, 0], [0.33, -0.2, 0.15], [0.62, -0.05, 0.35]];
+  fingers.forEach(([bx, by, ang], i) => {
+    for (let k = 1; k <= 4; k++) {
+      const L = (i === 0 ? 0.28 : 0.32) * k * (open ? 1 : 0.35), a = ang - Math.PI / 2;
+      add(bx + Math.cos(a) * L * (k > 1 ? 1 : 0.2), by + Math.sin(a) * L * (k > 1 ? 1 : 0.2));
+    }
+  });
+  let h = hands.hands[0];
+  if (!h) { hands.update({ landmarks: [P.map((p) => ({ x: p.x / W, y: p.y / H, z: 0 }))], gestures: [[{ categoryName: open ? 'Open_Palm' : 'Closed_Fist', score: 0.9 }]] }, W, H, now); h = hands.hands[0]; }
+  else { hands.update({ landmarks: [P.map((p) => ({ x: p.x / W, y: p.y / H, z: 0 }))], gestures: [[{ categoryName: FAKE.hand === 'point' ? 'Pointing_Up' : open ? 'Open_Palm' : 'Closed_Fist', score: 0.9 }]] }, W, H, now); }
+  if (FAKE.hand === 'blast' && Math.floor(t * 0.8) !== S.fakeBlast) { S.fakeBlast = Math.floor(t * 0.8); if (h) { h.blastAt = now; h.blastPower = 1; h.throwAt = now; h.throwVel = { x: s * 30, y: -s * 25 }; } }
 }
 
 // Keep it smooth on a mid-range tablet: step effects down when frames get slow, back up when there's headroom.
@@ -332,9 +598,16 @@ function setPowerHint(text) {
 }
 // Show "😮 → 🔥" for each selected power that has a face trigger, until he's using it.
 function powerHints(lv) {
+  const now = performance.now();
   const active = POWERS.filter((p) => p.trigger && isOn(p.id));
   const firing = Math.max(lv.fire, lv.ice, lv.bubble, lv.shout, lv.laser) > 0.3;
-  setPowerHint(active.length && tracker.faces.length && !firing ? active.map((p) => p.hint).join('   ') : '');
+  const hand = HAND_POWERS.find((p) => isOn(p.id));
+  const needHand = hand && !S.handsShown;
+  if (hand && S.handsShown) S.noHandSince = 0;
+  else if (needHand && !S.noHandSince) S.noHandSince = now;
+  if (needHand && now - S.noHandSince > 4000 && now - S.saidHandAt > 15000 && !S.busy) { S.saidHandAt = now; voice.say('show_hand'); }
+  const parts = [...(firing ? [] : active.map((p) => p.hint)), ...(needHand ? [hand.hint] : [])];
+  setPowerHint(parts.length && tracker.faces.length ? parts.join('   ') : '');
 }
 const lumaCanvas = document.createElement('canvas'); lumaCanvas.width = lumaCanvas.height = 24;
 const lumaCtx = lumaCanvas.getContext('2d', { willReadFrequently: true });
@@ -398,6 +671,19 @@ function renderPreview(cv, item) {
   const x = cv.getContext('2d');
   x.scale(px / 100, px / 100);
   const t = 1.3;
+  if (item.group === 'hands') { drawHandPreview(x, item.id); return; }
+  if (item.group === 'paint') {                      // the real paint shader on the cartoon head
+    const f = previewFace(50, 56, 46);
+    cartoonHead(x, f, false);
+    try { const pic = engine.previewPaint(item.id, f, 184); x.save(); x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(pic, 0, 0, px, px); x.restore(); } catch (e) { console.warn(e); }
+    return;
+  }
+  if (item.id === 'storm') {
+    x.fillStyle = '#121633'; x.fillRect(0, 0, 100, 100);
+    const f = previewFace(50, 40, 30);
+    drawStormPreview(x, f, 'back'); cartoonHead(x, f, false); drawStormPreview(x, f, 'front');
+    return;
+  }
   if (item.group === 'bg') {
     drawAnyBackground(x, item.id, 100, 100, t);
     cartoonHead(x, previewFace(50, 52, 30), false);
@@ -458,6 +744,7 @@ const EMOJI = {
   eye: '🦸🏿‍♂️', robot: '🤖', thunder: '⚡', dino: '🦖', race: '🏎️', astro: '🧑🏿‍🚀', knight: '🛡️', dragon: '🐉', ninja: '🥷🏿', viking: '🪓', crown: '👑', mech: '🤖', lion: '🦁', samurai: '⛩️', diver: '🤿', fireman: '🚒',
   fire: '🔥', ice: '❄️', rainbow: '🌈', bubble: '🫧', shout: '💥', laser: '👀', hypno: '🌀', lightning: '⚡', aura: '✨', shield: '🛡️', speed: '💨', invisible: '👻',
   cape: '🧣', wings: '🪽', jetpack: '🚀', badge: '⚡', robo: '🤖', dinobud: '🦕', city: '🌃', space: '🪐', dinoland: '🌋', sky: '☁️', underwater: '🐠', snow: '🏔️', track: '🏁', hq: '🖥️',
+  tiger: '🐯', chrome: '🪞', galaxy: '🌌', lava: '🌋', circuit: '🔌', frost: '🧊', blast: '✊', fireball: '☄️', zap: '⚡', frosthand: '❄️', magic: '✨', storm: '🌀',
   comic: '💬', cartoon: '🎨', pixel: '👾', night: '🌙', thermal: '🌡️', holo: '💠',
 };
 // Tile pictures are rendered once, one per frame in the background (3D ones are real renders and not free),
@@ -495,7 +782,7 @@ function renderTabs() {
   document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === S.tab)));
 }
 function renderTray(popId) {
-  const items = DRAWERS[S.tab];
+  const items = DRAWERS[S.tab].filter((it) => !it.gpu || gfx);
   const tray = $('tray');
   tray.replaceChildren(...items.map((it) => {
     const b = document.createElement('button');
@@ -528,13 +815,14 @@ function peekTray() {
 }
 
 function toggle(id) {
-  const it = ALL.find((x) => x.id === id), s = S.sel[id];
+  const it = ITEM[id], s = S.sel[id];
   if (s.on) {
     s.on = false; sfx.off();
   } else {
-    // one mask at a time; one breath, one eye power, one background, one look at a time
+    // one mask at a time; one face paint, one hand power, one breath, one eye power, one background, one look at a time
     const rivals = MASKS.includes(it) ? MASKS : it.group ? ALL.filter((x) => x.group === it.group) : [];
     for (const r of rivals) S.sel[r.id].on = false;
+    if (it.group === 'hands' || it.id === 'storm') { if (!workerFor(false, true)) loadHands(); }
     s.on = true; s.at = performance.now() / 1000;
     if (POWERS.includes(it)) sfx.zap(); else sfx.boing();
     voice.say(it.line);
@@ -554,7 +842,8 @@ function scheduleTapHint(id) {
 }
 function clearAll() {
   const any = ALL.some((it) => isOn(it.id));
-  for (const it of ALL) S.sel[it.id].on = false;
+  for (const it of ALL) S.sel[it.id].on = false;          // this hero's things (+ background and look)
+  G.balls = []; G.trails.clear();
   renderTray();
   sfx.swoosh();
   if (any) { voice.say('off'); toast('All off! 🧺'); }
@@ -564,7 +853,11 @@ function clearAll() {
 $('stage').addEventListener('pointerdown', (e) => {
   if (e.target.closest('button') || document.body.dataset.screen !== 'studio' || !$('loading').hidden || !$('error').hidden) return;
   if (isOn('shield') && performance.now() - S.shieldAt > 700) S.shieldAt = performance.now();   // cooldown: mashing can't strobe it
-  if (!POWERS.some((p) => (p.trigger || p.id === 'shield' || p.id === 'lightning') && isOn(p.id))) {
+  const now = performance.now();
+  const handPw = [0, 1].some((p) => handOf(p));
+  if (handPw) for (const h of hands.hands) if (handOf(h.player)) { h.blastAt = now; h.blastPower = 1; h.throwAt = now; h.throwVel = { x: 0, y: -h.size * 16 }; }
+  if (onAnyHero('storm')) S.boostUntil = now + 1600;
+  if (!handPw && !POWERS.some((p) => (p.trigger || p.id === 'shield' || p.id === 'lightning' || p.id === 'storm') && isOn(p.id))) {
     // no power to fire yet: answer the tap anyway and point at the Powers drawer
     sfx.sparkle(); voice.say('pick_power');
     const tab = document.querySelector('[data-tab=powers]');
@@ -573,6 +866,44 @@ $('stage').addEventListener('pointerdown', (e) => {
   }
   S.boostUntil = performance.now() + 1600;
   sfx.zap();
+});
+
+const onAnyHero = (id) => isOn(id, 0) || isOn(id, 1);
+
+// ───────────────────────────────────────────── hero 1 / hero 2
+function showPlayers(say) {
+  if (S.twoSeen) return;
+  S.twoSeen = true; S.oneSince = 0;
+  $('players').hidden = false;
+  document.body.classList.add('two');
+  if (say && !S.busy && !S.saidTwo) { S.saidTwo = true; voice.say('two_heroes'); }
+  peekTray();
+}
+function hidePlayers() {
+  S.twoSeen = false; S.oneSince = 0;
+  $('players').hidden = true;
+  document.body.classList.remove('two');
+}
+function setPlayer(p, quiet = false) {
+  const btn = document.querySelector(`.player[data-p="${p}"]`);
+  if (p !== S.player) {
+    S.player = p; bindSel();
+    document.body.dataset.player = String(p);
+    document.querySelectorAll('.player').forEach((b) => {
+      const on = +b.dataset.p === p;
+      b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1;
+    });
+    renderTray();
+  }
+  if (quiet) return;
+  sfx.pop(); voice.say(p ? 'player2' : 'player1');              // tapping your own number still answers
+  btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop');
+}
+document.querySelectorAll('.player').forEach((b) => { b.onclick = () => setPlayer(+b.dataset.p); b.tabIndex = +b.dataset.p === S.player ? 0 : -1; });
+$('players').addEventListener('keydown', (e) => {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+  e.preventDefault(); setPlayer(1 - S.player);
+  document.querySelector(`.player[data-p="${S.player}"]`).focus();
 });
 
 // ───────────────────────────────────────────── camera button
@@ -764,6 +1095,21 @@ document.querySelectorAll('.tab').forEach((b) => {
 });
 
 renderTabs();
+document.body.dataset.player = '0';
+loadFaceGeo().catch((e) => console.warn('face paint data', e));
+// Sculpted helmets replace the code-built ones as they arrive; redo their tile pictures.
+loadHelmetModels().then((n) => {
+  if (!n || !engine) return;
+  for (const h of engine.heads.values()) h.helmetId = undefined;
+  for (const it of MASKS) if (it.is3d && hasModel(it.id)) { const p = previews.get(it.id); if (p) { p.done = false; } }
+  renderTray();
+}).catch((e) => console.warn('helmet models', e));
+// WebGPU particles: if this browser has them, the extra-big effects and the Star Storm switch on.
+if (engine && !Q.has('nogpu')) createGpuFx(1280, 720).then((g) => {
+  if (!g) return;
+  gfx = g; engine.attachGpu(g.canvas);
+  renderTray();
+}).catch((e) => console.warn('webgpu', e));
 renderTray();
 loadPreviewFace().then(() => { if (PREVIEW) renderTray(); });
 gallery.latest().then((r) => r && setThumb(r.blob)).catch(() => {});
@@ -775,4 +1121,4 @@ if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.
 }
 
 // test hook
-window.__hero = { S, tracker, toggle, frame, seg, engine };
+window.__hero = { S, tracker, hands, toggle, frame, seg, engine, G, setPlayer, showPlayers, TW, get gfx() { return gfx; } };
